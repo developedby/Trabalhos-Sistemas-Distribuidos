@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key, En
 # TODO: Pensar em como fazer o sistema de reputação.
 # Aspectos que seriam interessantes:
 #   Considerar a opinião de todos os pares
-#   Desconsiderar a opinião de pares que aprecem ser maliciosos
+#   Desconsiderar a opinião de pares que parecem ser maliciosos
 #   Classificar a gravidade da noticia falsa
 #   Considerar o historico de quem ja mandou
 #   Perdoar ao longo do tempo
@@ -53,12 +53,13 @@ class MulticastNewsPeer:
         self.uni_sock = socket.socket(
             socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
         )
-        self.uni_sock.bind(socket.gethostbyname(socket.gethostname()), 0)
+        self.uni_sock.bind((socket.gethostbyname(socket.gethostname()), 0))
 
         # Lista dos pares conectados, contendo 
         self.connected_peers = []
 
-        self.window = tk.Tk('Multicast News')
+        self.window = tk.Tk()
+        self.window.title('Multicast News')
         self.window.frame_news = tk.Frame(self.window)
         self.window.frame_options = tk.Frame(self.window)
         # TODO: Fazer a interface e ligar aos metodos relevantes
@@ -79,7 +80,7 @@ class MulticastNewsPeer:
         
             :param news_data: A noticia a ser enviada, em bytes.
         """
-        signature = private_key.sign(news_data, hashes.SHA512())
+        signature = self.private_key.sign(news_data, hashes.SHA512())
         msg = bytes(json.dumps({'data': news_data, 'signature': signature}), 'utf-8')
         
         for sock in self.multi_socks:
@@ -101,6 +102,14 @@ class MulticastNewsPeer:
             new_peer_addr
         )
 
+        #deveria ser
+        # for peer in self.connected_peers:
+        #     self.uni_sock.sendto(
+        #         bytes(json.dumps({'key': peer.key})),
+        #         new_peer_addr
+        # )
+        # self.connected_peers.append(ConnectedPeer(new_peer_key, new_peer_addr))
+
     def join_group(self, addr):
         """
         Entra em um novo grupo multicast.
@@ -116,21 +125,21 @@ class MulticastNewsPeer:
                 return
         # Cria um novo socket multiacst com o endereço do novo grupo
         # TODO: Checar se não é possivel usar 1 socket para todos os grupos
+        new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.multi_socks.append(
-            socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            socket.socket(new_socket)
         )
-        # TODO: Acessar com -1 pode dar problema de concorrencia
-        self.multi_socks[-1].setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.multi_socks[-1].setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        new_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        new_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         mreq = struct.pack("4sl", socket.inet_aton(addr[0]), socket.INADDR_ANY)
-        self.multi_socks[-1].setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-        self.multi_socks[-1].bind(addr)
+        new_socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        new_socket.bind(addr)
 
         # Começa a thread que fica escutando nesse socket
         # TODO: Fazer a thread que escuta multicast
 
         # Envia a chave publica e o endereço
-        self.multi_socks[-1].sendto(
+        new_socket.sendto(
             bytes(json.dumps({
                 'key': self.public_key_encoded,
                 'address': self.uni_sock.getsockname()
@@ -138,6 +147,21 @@ class MulticastNewsPeer:
             addr
         )
 
+    def exit_group(self, addr):
+        """
+        Sai do grupo multicast.
+        """
+        # Checa se está no grupo
+        found = False
+        i = 0
+        while not found and i < len(self.multi_socks):
+            if self.multi_socks[i].getsockname() == addr:
+                del self.multi_socks[i]
+                found = True
+        
+        if not found:
+            # TODO: Cara nao encontrado no grupo
+            pass
 
 class ConnectedPeer:
     """
