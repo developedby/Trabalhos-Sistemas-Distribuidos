@@ -54,6 +54,7 @@ class MulticastNewsPeer:
             socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
         )
         self.uni_sock.bind((socket.gethostbyname(socket.gethostname()), 0))
+        # TODO: Iniciar a thread do socket unicast
 
         # Lista dos pares conectados, contendo 
         self.connected_peers = []
@@ -67,11 +68,19 @@ class MulticastNewsPeer:
         self.window.mainloop()
 
     def listen_multicast(self, sock):
-        # TODO
-        pass
+        # TODO: Fazer um esquema pra fechar a thread quando a socket é fechada
+        while True:
+            msg, sender = sock.recvfrom(1024)
+            # TODO: Decodificar a mensagem multicast
+            # Pode ser join, noticia ou alerta de fake news
+            # TODO: Decidir como passa a mensagem pra frente no programa
 
     def listen_unicast(self):
-        # TODO
+        # TODO: Fazer um esquema pra fechar a thread quando a socket é fechada
+        while True:
+            msg, sender = sock.recvfrom(1024)
+            # TODO: Decodificar a mensagem unicast (chave de pares nos grupos)
+            # TODO: Conectar ao par, verificando se ja existe, atualizando nesse caso
         pass
 
     def send_news(self, news_data):
@@ -80,6 +89,7 @@ class MulticastNewsPeer:
         
             :param news_data: A noticia a ser enviada, em bytes.
         """
+        # TODO: Ver se precisa poder escolher pra qual grupo mandar a noticia
         signature = self.private_key.sign(news_data, hashes.SHA512())
         msg = bytes(json.dumps({'data': news_data, 'signature': signature}), 'utf-8')
         
@@ -95,7 +105,7 @@ class MulticastNewsPeer:
             :param new_peer_key: Chave publica para verificar a assinatura das mensagens do novo par.
                 No formato PEM.
         """
-
+        # TODO: Tem que poder atualizar o endereço de um par que ja tinha conectado
         self.connected_peers.append(ConnectedPeer(new_peer_key, new_peer_addr))
         self.uni_sock.sendto(
             bytes(json.dumps({'key': self.public_key_encoded})),
@@ -152,14 +162,16 @@ class MulticastNewsPeer:
         Sai do grupo multicast.
         """
         # Checa se está no grupo
-        found = False
-        i = 0
-        while not found and i < len(self.multi_socks):
-            if self.multi_socks[i].getsockname() == addr:
-                del self.multi_socks[i]
-                found = True
-        
-        if not found:
+        sock_to_close = None
+        for sock in self.multi_socks:
+            if sock.getsockname() == addr:
+                sock_to_close = sock
+                break
+
+        if sock_to_close:
+            sock_to_close.close()
+            self.multi_socks.remove(sock_to_close)
+        else:
             # TODO: Cara nao encontrado no grupo
             pass
 
