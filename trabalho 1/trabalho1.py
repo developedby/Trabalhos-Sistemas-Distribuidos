@@ -8,8 +8,10 @@ Mantém um score de reputação baseado no numero de noticias falsas.
 
 import json
 import socket
+import struct
 import threading
 import tkinter as tk
+from tkinter import ttk
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -50,13 +52,15 @@ class MulticastNewsPeer:
 
         # Lista dos sockets multicast, um para cada grupo multicast conectado
         self.multi_socks = []
+        self.multi_threads = []
 
         # Socket unicast, um para toda a aplicação
         self.uni_sock = socket.socket(
             socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
         )
         self.uni_sock.bind((socket.gethostbyname(socket.gethostname()), 0))
-        # TODO: Iniciar a thread do socket unicast
+        self.uni_thread = threading.Thread(target=self.listen_unicast)
+        self.uni_thread.start()
 
         # Lista dos pares conectados, contendo inclusive a propria aplicacao
         self.connected_peers = {
@@ -69,18 +73,209 @@ class MulticastNewsPeer:
         # ID da próxima noticia a ser enviada
         self.next_news_id = 0
 
-        self.window = tk.Tk()
-        self.window.title('Multicast News')
-        self.window.frame_news = tk.Frame(self.window)
-        self.window.frame_options = tk.Frame(self.window)
-        # TODO: Fazer a interface e ligar aos metodos relevantes
+        self.create_gui()        
 
         self.window.mainloop()
 
+    # Métodos para a gui
+    def create_gui(self):
+        """Cria a GUI"""
+        self.window = tk.Tk()
+        self.window.title('Multicast News')
+        self.window.protocol("WM_DELETE_WINDOW", self.tk_on_closing)
+
+        # Frames da janela principal
+        self.window.frame_news = tk.Frame(
+            self.window, relief=tk.RIDGE, borderwidth=3
+        )
+        self.window.frame_news.grid(row=0, column=0)
+        self.window.frame_options = tk.Frame(self.window)
+        self.window.frame_options.grid(row=0, column=1)
+
+        # Widgets da parte do chat
+        tk.Label(self.window.frame_news, text="Histórico de notícias")\
+            .grid(row=0, column=0, columnspan=2)
+        self.window.chat = tk.Text(self.window.frame_news, state='disabled')
+        self.window.chat.grid(row=1, column=0)
+        self.window.chat_scrollbar = tk.Scrollbar(
+            self.window.frame_news
+        )
+        self.window.chat_scrollbar.grid(row=1, column=1, sticky='ns')
+        self.window.chat['yscrollcommand'] = self.window.chat_scrollbar.set
+        self.window.news_entry = self.create_entry(self.window.frame_news)
+        self.window.news_entry.grid(row=2, column=0)
+        self.window.send_news_btn = tk.Button(
+            self.window.frame_news,
+            command=self.send_news_btn_action,
+            text="Enviar notícia"
+        )
+        self.window.send_news_btn.grid(row=3, column=0)
+
+        # Frames do controle da aplicação
+        self.window.frame_group = tk.Frame(
+            self.window.frame_options, relief=tk.RIDGE, borderwidth=3
+        )
+        self.window.frame_group.grid(row=0, column=0)
+        self.window.frame_fake_news = tk.Frame(
+            self.window.frame_options, relief=tk.RIDGE, borderwidth=3
+        )
+        self.window.frame_fake_news.grid(row=1, column=0)
+
+        # Widgets relacionados aos grupos multicast
+        tk.Label(self.window.frame_group, text="Group IP")\
+            .grid(row=0, column=0)
+        self.window.group_ip_entry = self.create_entry(self.window.frame_group)
+        self.window.group_ip_entry.grid(row=0, column=1)
+        tk.Label(self.window.frame_group, text="Group port")\
+            .grid(row=1, column=0)
+        self.window.group_port_entry = self.create_entry(self.window.frame_group)
+        self.window.group_port_entry.grid(row=1, column=1)
+        self.window.join_group_btn = tk.Button(
+            self.window.frame_group,
+            command=self.join_group_btn_action,
+            text="Join Group"
+        )
+        self.window.join_group_btn.grid(row=2, column=0)
+        self.window.exit_group_btn = tk.Button(
+            self.window.frame_group,
+            command=self.exit_group_btn_action,
+            text="Exit Group"
+        )
+        self.window.exit_group_btn.grid(row=2, column=1)
+        # TODO: Arrumar
+        self.window.connected_groups_frame = tk.Frame(self.window.frame_group)
+        self.window.connected_groups_frame.grid(row=3, column=0, columnspan=2)
+        tk.Label(self.window.connected_groups_frame, text='Grupos conectados:')\
+            .grid(row=0, column=0, columnspan=2)
+        self.window.group_treeview = ttk.Treeview(
+            self.window.connected_groups_frame,
+            columns=('IP', 'port')
+        )
+        self.window.group_treeview.heading('IP', text='IP')
+        self.window.group_treeview.heading('port', text='port')
+        self.window.group_treeview.grid(row=1, column=0)
+        self.window.group_treeview_scrollbar = tk.Scrollbar(self.window.connected_groups_frame)
+        self.window.group_treeview_scrollbar.grid(row=1, column=1, sticky='ns')
+        self.window.group_treeview['yscrollcommand'] = \
+            self.window.group_treeview_scrollbar.set
+
+        # Widgets relacionados à fake news
+        tk.Label(self.window.frame_fake_news, text="Fake news IP")\
+            .grid(row=0, column=0)
+        self.window.fake_news_ip_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_ip_entry.grid(row=0, column=1)
+        tk.Label(self.window.frame_fake_news, text="Fake news port")\
+            .grid(row=1, column=0)
+        self.window.fake_news_port_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_port_entry.grid(row=1, column=1)
+        tk.Label(self.window.frame_fake_news, text="Fake news id")\
+            .grid(row=2, column=0)
+        self.window.fake_news_id_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_id_entry.grid(row=2, column=1)
+        tk.Label(self.window.frame_fake_news, text="Fake news reason")\
+            .grid(row=3, column=0)
+        self.window.fake_news_reason_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_reason_entry.grid(row=3, column=1)
+        self.window.fake_news_alert_btn = tk.Button(
+            self.window.frame_fake_news,
+            command=self.fake_news_alert_btn_action,
+            text="Send Alert"
+        )
+        self.window.fake_news_alert_btn.grid(row=4, column=0, columnspan=2)
+
+    @staticmethod
+    def create_entry(root):
+        entry = tk.Entry(root)
+        entry.var = tk.StringVar()
+        entry['textvariable'] = entry.var
+        return entry
+
+    @staticmethod
+    def is_valid_multicast_ipv4(ip):
+        blocks = ip.split('.')
+        if (len(blocks) != 4
+            or not ((224 <= int(blocks[0]) <= 239)
+                and (0 <= int(blocks[1]) <= 255)
+                and (0 <= int(blocks[2]) <= 255)
+                and (0 <= int(blocks[3]) <= 255)
+            )
+        ):
+            return False
+        else:
+            return True
+    
+    def send_news_btn_action(self):
+        """Envia a noticia escrita em news_entry para os grupos conectados"""
+        self.send_news(self.window.news_entry.var.get())
+
+    def join_group_btn_action(self):
+        """
+        Usa o valor das entries pra tentar entrar no grupo.
+        Chamado quando o usuario pressiona join_group_btn
+        """
+        ip = self.window.group_ip_entry.var.get()
+        if not self.is_valid_multicast_ipv4(ip):
+            return
+        try:
+            port = int(self.window.group_port_entry.var.get())
+        except ValueError:
+            return
+
+        self.join_group((ip, port))
+
+    def exit_group_btn_action(self):
+        """
+        Usa o valor das entries pra tentar sair do grupo.
+        Chamado quando o usuario pressiona exit_group_btn
+        """
+        ip = self.window.group_ip_entry.var.get()
+        if not self.is_valid_multicast_ipv4(ip):
+            return
+        try:
+            port = int(self.window.group_port_entry.var.get())
+        except ValueError:
+            return
+
+        self.exit_group((ip, port))
+
+    def fake_news_alert_btn_action(self):
+        """
+        Pega os valores das entries para tentar enviar um alerta de fake news.
+        Chamado quando o usuário pressiona fake_news_alert_btn
+        """
+        ip = self.window.fake_news_ip_entry.var.get()
+        if not self.is_valid_multicast_ipv4(ip):
+            return
+
+        try:
+            port = int(self.window.fake_news_port_entry.var.get())
+        except ValueError:
+            return
+
+        address = (ip, port)
+        if address not in self.connected_peers:
+            return
+
+        peer = self.connected_peers[address]
+        if id not in peer.news:
+            return
+
+        reason = self.window.fake_news_reason_entry.var.get()
+        self.alert_fake_news(address, id, reason)
+
+    def tk_on_closing(self):
+        self.uni_sock.close()
+        for sock in self.multi_socks:
+            sock.close()
+        self.window.destroy()
+
+    # Métodos das outras coisas
     def listen_multicast(self, sock):
         # TODO: Fazer um esquema pra fechar a thread quando a socket é fechada
+        print("Começando socket multicast no endereço", sock.getsockname())
         while True:
             msg = sock.recv(1024)
+            print('recebeu mensagem:', msg)
             try:
                 msg = json.loads(msg)
             except json.JSONDecodeError:
@@ -118,12 +313,17 @@ class MulticastNewsPeer:
         # TODO: Tem que poder atualizar o endereço de um par que ja tinha conectado
         self.connected_peers[new_peer_addr] = ConnectedPeer(new_peer_key, new_peer_addr)
         self.uni_sock.sendto(
-            bytes(json.dumps({'key': self.public_key_encoded})),
+            bytes(json.dumps({'key': self.public_key_encoded.decode('latin-1')})),
             new_peer_addr
         )
 
     def decode_news(self, data, signature, addr):
-        """A"""
+        """
+        Verifica se a noticia recebida é valida.
+        Se for, adiciona para a lista de noticias e mostra na GUI.
+        """
+        print(data, signature, addr)
+
         sender = None
         if addr in self.connected_peers:
             sender = self.connected_peers[addr]
@@ -131,21 +331,27 @@ class MulticastNewsPeer:
         else:
             # TODO: Manda um aviso
             return
+        print('decodificou endereço. Sender é', sender)
+
         # Verifica se a assinatura é a certa
         try:
             sender.key.verify(signature, data, hashes.SHA512())
         except InvalidSignature:
             # TODO: Manda um aviso
             return
+        print('verificou a assinatura')
+
         # Extrae a notícia
         try:
             news = json.loads(data)
         except json.JSONDecodeError:
             # TODO: Manda um aviso
             return
+        print('decodificou a noticia. é', news)
+
         sender.add_news(news['text'], news['id'])
 
-        # TODO: Mostra a noticia na GUI
+        self.window.chat.insert('1.0', f"{addr} - {news['id']}: {news['text']}")
 
     def decode_fake_news_alert(self, alert_data, signature, alerter_addr):
         """
@@ -178,6 +384,7 @@ class MulticastNewsPeer:
     def listen_unicast(self):
         """Fica escutando por mensagens no socket unicast."""
         # TODO: Fazer um esquema pra fechar a thread quando a socket é fechada
+        print("Começando o socket unicast")
         while True:
             # Espera receber mensagem
             msg, sender_addr = self.uni_sock.recvfrom(1024)
@@ -208,45 +415,22 @@ class MulticastNewsPeer:
         
             :param news_text: O texto da notícia a ser enviada.
         """
-        news_data = bytes(json.dumps({
+        news_data = json.dumps({
             'text': news_text,
             'id': self.next_news_id,
-        }), 'utf-8')
+        })
         # TODO: Ver se precisa poder escolher pra qual grupo mandar a noticia
-        signature = self.private_key.sign(news_data, hashes.SHA512())
+        signature = self.private_key.sign(bytes(news_data, 'latin-1'), hashes.SHA512())
         msg = bytes(json.dumps({
             'news': news_data,
-            'signature': signature,
+            'signature': signature.decode('latin-1'),
             'address': self.uni_sock.getsockname()
         }), 'utf-8')
         
         for sock in self.multi_socks:
             sock.sendto(msg, sock.getsockname())
-
-    def alert_fake_news(self, addr, id, reason):
-        """
-        Envia um alerta que uma certa noticia é falsa.
-
-            :param addr: Endereço de quem enviou a noticia falsa.
-            :param id: Id da notícia falsa.
-            :param reason: Mensagem com a justificativa de porque é falsa.
-        """
-        alert_data = bytes(json.dumps({
-            'id': id,
-            'address': addr,
-            'reason': reason,
-        }), 'utf-8')
-
-        signature = self.private_key.sign(alert_data, hashes.SHA512())
-
-        msg = bytes(json.dumps({
-            'alert': alert_data,
-            'signature': signature,
-            'address': self.uni_sock.getsockname()
-        }), 'utf-8')
-
-        for sock in self.multi_socks:
-            sock.sendto(msg, sock.getsockname())
+        print("enviou a noticia de id", self.next_news_id)
+        self.next_news_id += 1
 
     def join_group(self, addr):
         """
@@ -262,11 +446,8 @@ class MulticastNewsPeer:
                 # TODO: Grupo repetido. Manda algum erro
                 return
         # Cria um novo socket multiacst com o endereço do novo grupo
-        # TODO: Checar se não é possivel usar 1 socket para todos os grupos
-        new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.multi_socks.append(
-            socket.socket(new_socket)
-        )
+        new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)#, socket.IPPROTO_UDP)
+        self.multi_socks.append(new_socket)
         new_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         new_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         mreq = struct.pack("4sl", socket.inet_aton(addr[0]), socket.INADDR_ANY)
@@ -274,14 +455,21 @@ class MulticastNewsPeer:
         new_socket.bind(addr)
 
         # Começa a thread que fica escutando nesse socket
-        # TODO: Fazer a thread que escuta multicast
+        self.multi_threads.append(
+            threading.Thread(target=lambda: self.listen_multicast(new_socket))
+        )
+        self.multi_threads[-1].start()
+
+        self.window.group_treeview.insert(
+            '', 0, f"{addr[0]},{addr[1]}", text=addr[0], values=addr[1]
+        )
 
         # Envia a chave publica e o endereço
         new_socket.sendto(
             bytes(json.dumps({
-                'key': self.public_key_encoded,
+                'key': self.public_key_encoded.decode('latin-1'),
                 'address': self.uni_sock.getsockname()
-            })),
+            }), 'utf-8'),
             addr
         )
 
@@ -303,6 +491,33 @@ class MulticastNewsPeer:
             # TODO: Cara nao encontrado no grupo
             pass
 
+        self.window.group_treeview.delete(f"{addr[0]},{addr[1]}")
+
+    def alert_fake_news(self, addr, id, reason):
+        """
+        Envia um alerta que uma certa noticia é falsa.
+
+            :param addr: Endereço de quem enviou a noticia falsa.
+            :param id: Id da notícia falsa.
+            :param reason: Mensagem com a justificativa de porque é falsa.
+        """
+        alert_data = json.dumps({
+            'id': id,
+            'address': addr,
+            'reason': reason,
+        })
+
+        signature = self.private_key.sign(bytes(alert_data, 'latin-1'), hashes.SHA512())
+
+        msg = bytes(json.dumps({
+            'alert': alert_data,
+            'signature': signature.decode('latin-1'),
+            'address': self.uni_sock.getsockname()
+        }), 'utf-8')
+
+        for sock in self.multi_socks:
+            sock.sendto(msg, sock.getsockname())
+
 class ConnectedPeer:
     """
     Representa um par com quem se conectou em um dos grupos multicast.
@@ -312,7 +527,7 @@ class ConnectedPeer:
         :param addr: Endereço (ip, porta) do par.
     """
     def __init__(self, key, addr):
-        self.key = load_pem_public_key(key, backend=default_backend)
+        self.key = load_pem_public_key(key, backend=default_backend())
         self.addr = addr
         self.reputation = 0
         self.news = {}
