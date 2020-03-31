@@ -79,6 +79,12 @@ class MulticastNewsPeer:
 
     # Métodos para a gui
     def create_gui(self):
+        print(self.connected_peers[self.uni_sock.getsockname()].key)
+        print(type(self.connected_peers[self.uni_sock.getsockname()].key))
+        teste = self.connected_peers[self.uni_sock.getsockname()]
+        print(type(teste))
+        print(teste.key)
+        print(type(teste.key))
         """Cria a GUI"""
         self.window = tk.Tk()
         self.window.title('Multicast News')
@@ -290,13 +296,13 @@ class MulticastNewsPeer:
 
             # Verifica se é um join
             if 'key' in msg:
-                self.ack_new_peer(sender_addr, msg['key'])
+                self.ack_new_peer(tuple(sender_addr), msg['key'].encode('latin-1'))
             # Verifica se é notícia
             if 'news' in msg and 'signature' in msg:
-                self.decode_news(msg['news'], msg['signature'], msg['address'])
+                self.decode_news(msg['news'], msg['signature'].encode('latin-1'), tuple(msg['address']))
             if 'alert' in msg and 'signature' in msg:
                 self.decode_fake_news_alert(
-                    msg['alert'], msg['signature'], msg['address']
+                    msg['alert'], msg['signature'].encode('latin-1'), tuple(msg['address'])
                 )
             # Pode ser join, noticia ou alerta de fake news
             # TODO: Decidir como passa a mensagem pra frente no programa
@@ -311,11 +317,23 @@ class MulticastNewsPeer:
                 No formato PEM.
         """
         # TODO: Tem que poder atualizar o endereço de um par que ja tinha conectado
+        
         self.connected_peers[new_peer_addr] = ConnectedPeer(new_peer_key, new_peer_addr)
+        print('legal')
+        print(type(self.connected_peers[new_peer_addr]))
+        print(type(self.connected_peers[new_peer_addr].key))
+        teste = None
+        if new_peer_addr in self.connected_peers:
+            teste = self.connected_peers[new_peer_addr]
+        print(type(teste))
+        print(teste.key)
+        print(teste)
+        print(new_peer_addr)
         self.uni_sock.sendto(
-            bytes(json.dumps({'key': self.public_key_encoded.decode('latin-1')})),
+            bytes(json.dumps({'key': self.public_key_encoded.decode('latin-1')}), 'utf-8'),
             new_peer_addr
         )
+        print('depois temos', teste.key)
 
     def decode_news(self, data, signature, addr):
         """
@@ -329,14 +347,19 @@ class MulticastNewsPeer:
             sender = self.connected_peers[addr]
         # Se quem enviou a noticia não é um par conectado
         else:
+            print("sender nao encontrado")
             # TODO: Manda um aviso
             return
         print('decodificou endereço. Sender é', sender)
+        print(type(sender))
+        print(type(sender.key))
+        print(sender.key)
 
         # Verifica se a assinatura é a certa
         try:
             sender.key.verify(signature, data, hashes.SHA512())
         except InvalidSignature:
+            print("assinatura zuou")
             # TODO: Manda um aviso
             return
         print('verificou a assinatura')
@@ -345,6 +368,7 @@ class MulticastNewsPeer:
         try:
             news = json.loads(data)
         except json.JSONDecodeError:
+            print("nao conseguiu extrair a mensagem")
             # TODO: Manda um aviso
             return
         print('decodificou a noticia. é', news)
