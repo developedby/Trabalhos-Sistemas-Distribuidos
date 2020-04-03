@@ -20,7 +20,8 @@ from cryptography.hazmat.primitives.asymmetric import dsa
 from cryptography.hazmat.primitives.serialization import load_pem_public_key, Encoding, PublicFormat
 from cryptography.exceptions import InvalidSignature
 
-# TODO: Pensar em como fazer o sistema de reputação.
+
+# TODO: Pensar em como melhorar o sistema de reputação.
 # Aspectos que seriam interessantes:
 #   Considerar a opinião de todos os pares
 #   Desconsiderar a opinião de pares que parecem ser maliciosos
@@ -407,10 +408,8 @@ class MulticastNewsPeer:
             :param new_peer_addr: Endereço (ip, port) do novo par
             :param new_peer_key: Chave do novo par
         """
-        # TODO: Arrumar?
         # Se já estava conectado, atualiza para a chave enviada
         if new_peer_addr in self.connected_peers:
-            #self.connected_peers[sender_addr].key = sender_key nao pode
             return
 
         self.connected_peers[new_peer_addr] = ConnectedPeer(new_peer_key, new_peer_addr)
@@ -594,7 +593,6 @@ class MulticastNewsPeer:
             'text': news_text,
             'id': str(self.next_news_id),
         })
-        # TODO: Ver se precisa poder escolher pra qual grupo mandar a noticia
         signature = self.private_key.sign(bytes(news_data, 'latin-1'), hashes.SHA512())
         msg = bytes(json.dumps({
             'news': news_data,
@@ -734,7 +732,6 @@ class ConnectedPeer:
 
         # Checa por texto repetido
         # TODO: Muito ineficiente, calcular um hash ou algo parecido
-        # TODO: Não esta funcionando
         for key in self.news:
             if self.news[key].text == text:
                 raise ValueError(f"Notícia já existe com outro id")
