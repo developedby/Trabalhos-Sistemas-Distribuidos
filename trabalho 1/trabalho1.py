@@ -86,15 +86,19 @@ class MulticastNewsPeer:
         self.window.frame_news = tk.Frame(
             self.window, relief=tk.RIDGE, borderwidth=3
         )
-        self.window.frame_news.grid(row=0, column=0)
+        self.window.frame_news.grid(row=0, column=0, sticky='nsew')
         self.window.frame_options = tk.Frame(self.window)
-        self.window.frame_options.grid(row=0, column=1)
+        self.window.frame_options.grid(row=0, column=1, sticky='ns')
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
 
         # Widgets da parte do chat
+        self.window.frame_news.rowconfigure(1, weight=1)
+        self.window.frame_news.columnconfigure(0, weight=1)
         tk.Label(self.window.frame_news, text="Histórico de notícias")\
             .grid(row=0, column=0, columnspan=2)
         self.window.chat = tk.Text(self.window.frame_news, state='disable')
-        self.window.chat.grid(row=1, column=0)
+        self.window.chat.grid(row=1, column=0, sticky='nsew')
         self.window.chat_scrollbar = tk.Scrollbar(
             self.window.frame_news
         )
@@ -113,76 +117,95 @@ class MulticastNewsPeer:
         self.window.frame_group = tk.Frame(
             self.window.frame_options, relief=tk.RIDGE, borderwidth=3
         )
-        self.window.frame_group.grid(row=0, column=0)
+        self.window.frame_group.grid(row=0, column=0, sticky='nsew')
         self.window.frame_fake_news = tk.Frame(
             self.window.frame_options, relief=tk.RIDGE, borderwidth=3
         )
-        self.window.frame_fake_news.grid(row=1, column=0)
+        self.window.frame_fake_news.grid(row=1, column=0, sticky='nsew')
         self.window.frame_connected_peer = tk.Frame(
             self.window.frame_options, relief=tk.RIDGE, borderwidth=3
         )
-        self.window.frame_connected_peer.grid(row=2, column=0)
+        self.window.frame_connected_peer.grid(row=2, column=0, sticky='nsew')
 
         # Widgets relacionados aos grupos multicast
-        tk.Label(self.window.frame_group, text="Group IP")\
+        self.window.frame_group.columnconfigure(0, weight=1)
+        self.window.frame_group_entries = tk.Frame(self.window.frame_group)
+        self.window.frame_group_entries.grid(row=0, column=0)
+        self.window.frame_group_buttons = tk.Frame(self.window.frame_group)
+        self.window.frame_group_buttons.grid(row=1, column=0)
+        ttk.Separator(self.window.frame_group)\
+            .grid(row=2, column=0, sticky='we')
+        self.window.frame_connected_groups = tk.Frame(self.window.frame_group)
+        self.window.frame_connected_groups.grid(row=3, column=0)
+        # Frame Group Entries
+        tk.Label(self.window.frame_group_entries, text="Group IP")\
             .grid(row=0, column=0)
-        self.window.group_ip_entry = self.create_entry(self.window.frame_group)
+        self.window.group_ip_entry = self.create_entry(self.window.frame_group_entries)
         self.window.group_ip_entry.grid(row=0, column=1)
-        tk.Label(self.window.frame_group, text="Group port")\
+        tk.Label(self.window.frame_group_entries, text="Group port")\
             .grid(row=1, column=0)
-        self.window.group_port_entry = self.create_entry(self.window.frame_group)
+        self.window.group_port_entry = self.create_entry(self.window.frame_group_entries)
         self.window.group_port_entry.grid(row=1, column=1)
+        # Frame Group Buttons
         self.window.join_group_btn = tk.Button(
-            self.window.frame_group,
+            self.window.frame_group_buttons,
             command=self.join_group_btn_action,
             text="Join Group"
         )
-        self.window.join_group_btn.grid(row=2, column=0)
+        self.window.join_group_btn.grid(row=0, column=0)
         self.window.exit_group_btn = tk.Button(
-            self.window.frame_group,
+            self.window.frame_group_buttons,
             command=self.exit_group_btn_action,
             text="Exit Group"
         )
-        self.window.exit_group_btn.grid(row=2, column=1)
-        self.window.connected_groups_frame = tk.Frame(self.window.frame_group)
-        self.window.connected_groups_frame.grid(row=3, column=0, columnspan=2)
-        tk.Label(self.window.connected_groups_frame, text='Grupos conectados:')\
+        self.window.exit_group_btn.grid(row=0, column=1)
+        # Frame Connected Groups
+        tk.Label(self.window.frame_connected_groups, text='Grupos conectados:')\
             .grid(row=0, column=0, columnspan=2)
         self.window.group_treeview = ttk.Treeview(
-            self.window.connected_groups_frame,
+            self.window.frame_connected_groups,
             columns=('port')
         )
+        self.window.group_treeview.column('#0', width=130)
+        self.window.group_treeview.column('port', width=60)
         self.window.group_treeview.heading('#0', text='IP')
         self.window.group_treeview.heading('port', text='port')
         self.window.group_treeview.grid(row=1, column=0)
-        self.window.group_treeview_scrollbar = tk.Scrollbar(self.window.connected_groups_frame)
+        self.window.group_treeview_scrollbar = tk.Scrollbar(self.window.frame_connected_groups)
         self.window.group_treeview_scrollbar.grid(row=1, column=1, sticky='ns')
         self.window.group_treeview['yscrollcommand'] = \
             self.window.group_treeview_scrollbar.set
 
         # Widgets relacionados à fake news
-        tk.Label(self.window.frame_fake_news, text="Fake news IP")\
+        self.window.frame_fake_news.columnconfigure(0, weight=1)
+        self.window.frame_fake_news_entries = tk.Frame(self.window.frame_fake_news)
+        self.window.frame_fake_news_entries.grid(row=0, column=0)
+        self.window.frame_fake_news_buttons = tk.Frame(self.window.frame_fake_news)
+        self.window.frame_fake_news_buttons.grid(row=1, column=0)
+        # Frame Fake News Entries
+        tk.Label(self.window.frame_fake_news_entries, text="Fake news IP")\
             .grid(row=0, column=0)
-        self.window.fake_news_ip_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_ip_entry = self.create_entry(self.window.frame_fake_news_entries)
         self.window.fake_news_ip_entry.grid(row=0, column=1)
-        tk.Label(self.window.frame_fake_news, text="Fake news port")\
+        tk.Label(self.window.frame_fake_news_entries, text="Fake news port")\
             .grid(row=1, column=0)
-        self.window.fake_news_port_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_port_entry = self.create_entry(self.window.frame_fake_news_entries)
         self.window.fake_news_port_entry.grid(row=1, column=1)
-        tk.Label(self.window.frame_fake_news, text="Fake news id")\
+        tk.Label(self.window.frame_fake_news_entries, text="Fake news id")\
             .grid(row=2, column=0)
-        self.window.fake_news_id_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_id_entry = self.create_entry(self.window.frame_fake_news_entries)
         self.window.fake_news_id_entry.grid(row=2, column=1)
-        tk.Label(self.window.frame_fake_news, text="Fake news reason")\
+        tk.Label(self.window.frame_fake_news_entries, text="Fake news reason")\
             .grid(row=3, column=0)
-        self.window.fake_news_reason_entry = self.create_entry(self.window.frame_fake_news)
+        self.window.fake_news_reason_entry = self.create_entry(self.window.frame_fake_news_entries)
         self.window.fake_news_reason_entry.grid(row=3, column=1)
+        # Frame Fake News Buttons
         self.window.fake_news_alert_btn = tk.Button(
-            self.window.frame_fake_news,
+            self.window.frame_fake_news_buttons,
             command=self.fake_news_alert_btn_action,
             text="Send Alert"
         )
-        self.window.fake_news_alert_btn.grid(row=4, column=0, columnspan=2)
+        self.window.fake_news_alert_btn.grid(row=0, column=0)
 
         # Widgets da lista de pares conectados
         tk.Label(self.window.frame_connected_peer, text="Pares Conectados")\
@@ -194,6 +217,9 @@ class MulticastNewsPeer:
         self.window.peers_treeview.heading('#0', text='IP')
         self.window.peers_treeview.heading('port', text='port')
         self.window.peers_treeview.heading('reputação', text='reputação')
+        self.window.peers_treeview.column('#0', width=130)
+        self.window.peers_treeview.column('port', width=60)
+        self.window.peers_treeview.column('reputação', width=80)
         self.window.peers_treeview.grid(row=1, column=0)
         self.window.peers_treeview_scrollbar = tk.Scrollbar(self.window.frame_connected_peer)
         self.window.peers_treeview_scrollbar.grid(row=1, column=1, sticky='ns')
@@ -445,7 +471,15 @@ class MulticastNewsPeer:
             return
         print('decodificou a noticia. é', news)
 
-        sender.add_news(news['text'], news['id'])
+        try:
+            sender.add_news(news['text'], news['id'])
+        except ValueError:
+            print("add_news: Texto repetido enviado por", sender)
+            return
+        except IndexError:
+            print("add_news: ID repetido enviado por", sender)
+            return
+        self.update_reputation_display(sender)
 
         self.window.chat.configure(state='normal')
         self.window.chat.insert('1.0', '\n')
@@ -464,28 +498,43 @@ class MulticastNewsPeer:
                 Verificada contra alert_data.
             :param alerter_addr: Endereço de quem enviou o aviso.
         """
+        # Tenta decodificar o JSON do alerta
         try:
             alert = json.loads(alert_data)
         except json.JSONDecodeError:
             print("decode_fake_news_alert: Não conseguiu decodificar json")
             return
-
         fake_news_addr = tuple(alert['address'])
         fake_news_id = alert['id']
 
+        # Checa se que alertou é conhecido
         if (alerter_addr not in self.connected_peers):
             print("decode_fake_news_alert: alerter_addr", alerter_addr, "desconhecido")
             return
+
+        # Checa se quem é suspeito é conhecido
         if fake_news_addr not in self.connected_peers:
             print("decode_fake_news_alert: fake_news_addr", fake_news_addr, "desconhecido")
             return
-        if fake_news_id not in self.connected_peers[fake_news_addr].news:
+        suspected_peer = self.connected_peers[fake_news_addr]
+
+        # Checa se a notícia suspeita é conhecida
+        if fake_news_id not in suspected_peer.news:
             print("decode_fake_news_alert: ID de noticia", fake_news_id, "desconhecido")
             return
+        suspected_news = suspected_peer.news[fake_news_id]
 
-        # TODO: Fazer um algoritmo melhor de reputação
-        self.connected_peers[fake_news_addr].reputation -= 1
+        # Checa se o alerta não é repetido
+        if alerter_addr in suspected_news.fake_news_alerters:
+            print("decode_fake_news_alert: recebeu alerta repetido")
+            return
+        suspected_news.fake_news_alerters.add(alerter_addr)
 
+        # Diminui a reputação e atualiza a tabela
+        self.connected_peers[fake_news_addr].decrease_reputation()
+        self.update_reputation_display(self.connected_peers[fake_news_addr])
+
+        # Mostra uma mensagem no chat que recebeu alerta de fakle news
         self.window.chat['state'] = 'normal'
         self.window.chat.insert('1.0', '\n')
         self.window.chat.insert('1.0', (
@@ -493,11 +542,12 @@ class MulticastNewsPeer:
             f"Reportou que a noticia '{fake_news_id}' de {fake_news_addr} é falsa"
         ))
         self.window.chat['state'] = 'disable'
-
-        values = self.window.peers_treeview.item(f'{fake_news_addr[0]},{fake_news_addr[1]}')['values']
-        values[1] = self.connected_peers[fake_news_addr].reputation
+  
+    def update_reputation_display(self, peer):
+        values = self.window.peers_treeview.item(f'{peer.addr[0]},{peer.addr[1]}')['values']
+        values[1] = peer.reputation
         self.window.peers_treeview.item(
-            f'{fake_news_addr[0]},{fake_news_addr[1]}',
+            f'{peer.addr[0]},{peer.addr[1]}',
             values=values
         )
 
@@ -659,13 +709,13 @@ class MulticastNewsPeer:
         for sock in self.multi_socks:
             sock.sendto(msg, sock.getsockname())
 
+
 class ConnectedPeer:
     """
     Representa um par com quem se conectou em um dos grupos multicast.
     
-        :param key: Chave publica do par, para verificar assinatura.
-            No formato PEM.
-        :param addr: Endereço (ip, porta) do par.
+        :param key: Chave pública da assinatura do par.
+        :param addr: Endereço (ip, porta) que identifica o par
     """
     def __init__(self, key, addr):
         self.key = load_pem_public_key(key, backend=default_backend())
@@ -673,13 +723,48 @@ class ConnectedPeer:
         self.reputation = 0
         self.news = {}
 
+    def __str__(self):
+        return str(self.addr)
+
     def add_news(self, text, id_):
+        """Adiciona a noticia ao par e recalcula a reputação"""
+        # Checa por ID repetido
         if id_ in self.news:
             raise IndexError(f"Id {id_} da notícia é repetido")
+
+        # Checa por texto repetido
         # TODO: Muito ineficiente, calcular um hash ou algo parecido
-        if text in self.news.values():
-            raise ValueError(f"Notícia já existe com outro id")
-        self.news[id_] = text
+        # TODO: Não esta funcionando
+        for key in self.news:
+            if self.news[key].text == text:
+                raise ValueError(f"Notícia já existe com outro id")
+
+        # Cria a noticia
+        self.news[id_] = News(id_, text)
+
+        # Sobe 0.3 se reputação >= 0
+        # Sobe 0.1 se reputação <= -20
+        reputation_delta = 0.3 + max(min(self.reputation/10, 0), -0.2)
+        self.reputation += reputation_delta
+
+    def decrease_reputation(self):
+        """Diminui a reputação em um passo. Usado quando descobre fake"""
+        self.reputation -= 1
+
+
+class News:
+    """
+    Representa uma noticia.
+
+        :param id_: Identicador único de uma notícia em um par
+        :param text: Corpo da notícia
+    """
+    def __init__(self, id_, text):
+        self.id = id_
+        self.text = text
+        # Conjunto de pessoas que avisaram que essa notícia é fake news
+        self.fake_news_alerters = set()
+
 
 if __name__ == "__main__":
     program = MulticastNewsPeer()
