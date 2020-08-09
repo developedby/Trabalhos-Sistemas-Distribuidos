@@ -49,20 +49,20 @@ class MulticastNewsPeer:
         )
 
         # Lista dos sockets multicast, um para cada grupo multicast conectado
-        self.multi_socks = []
-        self.multi_threads = []
+        self.multicast_socks = []
+        self.multicast_threads = []
 
         # Socket unicast, um para toda a aplicação
-        self.uni_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.uni_sock.bind((socket.gethostbyname(socket.gethostname()), 0))
-        self.uni_thread = threading.Thread(target=self.listen_unicast, daemon=True)
-        self.uni_thread.start()
+        self.unicast_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.unicast_sock.bind((socket.gethostbyname(socket.gethostname()), 0))
+        self.unicast_thread = threading.Thread(target=self.listen_unicast, daemon=True)
+        self.unicast_thread.start()
 
         # Dicionario com os pares conectados
-        # As chaves sãoi os endereços dos pares
+        # As chaves são os endereços dos pares
         self.connected_peers = {}
 
-        # ID da próxima noticia a ser enviada
+        # ID da próxima noticia a ser enviada, incrementa depois de cada notícia enviada
         self.next_news_id = 0
 
     def start(self):
@@ -71,7 +71,7 @@ class MulticastNewsPeer:
 
         # Adiciona o próprio programa como um par inicial
         # Tem que ser depois de criar a GUI para colocar como um item na lista de pares
-        self.add_new_peer(self.uni_sock.getsockname(), self.public_key_encoded)
+        self.add_new_peer(self.unicast_sock.getsockname(), self.public_key_encoded)
 
         # Roda o programa
         self.window.mainloop()
@@ -339,22 +339,22 @@ class MulticastNewsPeer:
 
         print("Fechando socket unicast")
         try:
-            self.uni_sock.shutdown(socket.SHUT_RDWR)
+            self.unicast_sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
-        self.uni_sock.close()
-        while self.uni_thread.is_alive():
+        self.unicast_sock.close()
+        while self.unicast_thread.is_alive():
             time.sleep(0.1)
             print("Esperando thread unicast")
 
         print("Fechando sockets multicast")
-        for i, sock in enumerate(self.multi_socks):
+        for i, sock in enumerate(self.multicast_socks):
             try:
                 sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
             sock.close()
-        for thread in self.multi_threads:
+        for thread in self.multicast_threads:
             while thread.is_alive():
                 time.sleep(0.1)
                 print("Esperando thread multicast")
@@ -435,7 +435,7 @@ class MulticastNewsPeer:
         # Adiciona o par
         self.add_new_peer(new_peer_addr, new_peer_key)
         # Envia a chave publica a esse par
-        self.uni_sock.sendto(
+        self.unicast_sock.sendto(
             bytes(json.dumps({'key': self.public_key_encoded.decode('latin-1')}), 'utf-8'),
             new_peer_addr
         )
@@ -458,7 +458,7 @@ class MulticastNewsPeer:
         try:
             sender.key.verify(signature, data, hashes.SHA512())
         except InvalidSignature:
-            print("assinatura zuou")
+            print("assinatura incorreta")
             return
         print('verificou a assinatura')
 
@@ -472,10 +472,10 @@ class MulticastNewsPeer:
 
         try:
             sender.add_news(news['text'], news['id'])
-        except ValueError:
+        except RepeatedTextError:
             print("add_news: Texto repetido enviado por", sender)
             return
-        except IndexError:
+        except RepeatedIdError:
             print("add_news: ID repetido enviado por", sender)
             return
         self.update_reputation_display(sender)
@@ -506,7 +506,7 @@ class MulticastNewsPeer:
         fake_news_addr = tuple(alert['address'])
         fake_news_id = alert['id']
 
-        # Checa se que alertou é conhecido
+        # Checa se quem alertou é conhecido
         if (alerter_addr not in self.connected_peers):
             print("decode_fake_news_alert: alerter_addr", alerter_addr, "desconhecido")
             return
@@ -551,12 +551,13 @@ class MulticastNewsPeer:
         )
 
     def listen_unicast(self):
-        """Fica escutando por mensagens no socket unicast."""
+        """Fica escutando por mensagens no socket unicast.
+           Somente chaves públicas de quem está na rede"""
         print("Começando o socket unicast")
         while True:
             # Espera receber mensagem
             try:
-                msg, sender_addr = self.uni_sock.recvfrom(1024)
+                msg, sender_addr = self.unicast_sock.recvfrom(1024)
             except InterruptedError:
                 print("Fechando thread unicast")
                 return
@@ -569,7 +570,6 @@ class MulticastNewsPeer:
 
             print("Recebeu de", sender_addr, "mensagem unicast")
             # Decodifica a mensagem
-            # Por enquanto, a unica coisa que recebe é chave de quem já esta na rede
             try:
                 msg = json.loads(msg)
             except json.JSONDecodeError:
@@ -589,21 +589,36 @@ class MulticastNewsPeer:
         
             :param news_text: O texto da notícia a ser enviada.
         """
+        #Se não está em grupo multicast, não faz nada
+        if not self.multicast_socks:
+            print("Tentou enviar mensagem sem estar em grupo")
+            return
+
+        #Verifica se a mensagem já existe, se sim o id é o mesmo da mensagem antiga
+        id_ = None
+        myself_peer = self.connected_peers[self.unicast_sock.getsockname()]
+        for key in myself_peer.news:
+            if myself_peer.news[key].text == news_text:
+                id_ = key
+                break
+        if id_ is None:
+            id_ = self.next_news_id
+            self.next_news_id += 1
+
         news_data = json.dumps({
             'text': news_text,
-            'id': str(self.next_news_id),
+            'id': str(id_),
         })
         signature = self.private_key.sign(bytes(news_data, 'latin-1'), hashes.SHA512())
         msg = bytes(json.dumps({
             'news': news_data,
             'signature': signature.decode('latin-1'),
-            'address': self.uni_sock.getsockname()
+            'address': self.unicast_sock.getsockname()
         }), 'utf-8')
         
-        for sock in self.multi_socks:
+        for sock in self.multicast_socks:
             sock.sendto(msg, sock.getsockname())
-        print("enviou a noticia de id", self.next_news_id)
-        self.next_news_id += 1
+        print("enviou a noticia de id", id_)
 
     def join_group(self, addr):
         """
@@ -614,13 +629,13 @@ class MulticastNewsPeer:
             :param addr: Endereço (ip, porta) do grupo.
         """
         # Checa se ja não está no grupo
-        for sock in self.multi_socks:
+        for sock in self.multicast_socks:
             if sock.getsockname() == addr:
                 print("join_group: Tentou entrar mais uma vez no mesmo grupo")
                 return
         # Cria um novo socket multiacst com o endereço do novo grupo
         new_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)#, socket.IPPROTO_UDP)
-        self.multi_socks.append(new_socket)
+        self.multicast_socks.append(new_socket)
         new_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         new_socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         mreq = struct.pack("4sl", socket.inet_aton(addr[0]), socket.INADDR_ANY)
@@ -628,20 +643,20 @@ class MulticastNewsPeer:
         new_socket.bind(addr)
 
         # Começa a thread que fica escutando nesse socket
-        self.multi_threads.append(
+        self.multicast_threads.append(
             threading.Thread(target=lambda: self.listen_multicast(new_socket), daemon=True)
         )
-        self.multi_threads[-1].start()
+        self.multicast_threads[-1].start()
 
         self.window.group_treeview.insert(
             '', 0, f"{addr[0]},{addr[1]}", text=addr[0], values=addr[1]
         )
 
-        # Envia a chave publica e o endereço
+        # Envia a chave publica e o endereço. Avisa que entrou no grupo multicast
         new_socket.sendto(
             bytes(json.dumps({
                 'key': self.public_key_encoded.decode('latin-1'),
-                'address': self.uni_sock.getsockname()
+                'address': self.unicast_sock.getsockname()
             }), 'utf-8'),
             addr
         )
@@ -654,7 +669,7 @@ class MulticastNewsPeer:
         """
         # Pega a socket do grupo
         sock_to_close = None
-        for sock in self.multi_socks:
+        for sock in self.multicast_socks:
             if sock.getsockname() == addr:
                 sock_to_close = sock
                 break
@@ -662,19 +677,19 @@ class MulticastNewsPeer:
         # Se tava participando do grupo
         if sock_to_close:
             # Fecha a socket
-            sock_idx = self.multi_socks.index(sock_to_close)
+            sock_idx = self.multicast_socks.index(sock_to_close)
             try:
                 sock_to_close.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
             sock_to_close.close()
             # Espera a thread dessa socket acabar
-            thread_to_close = self.multi_threads[sock_idx]
+            thread_to_close = self.multicast_threads[sock_idx]
             while thread_to_close.is_alive():
                 time.sleep(0.05)
             # Limpa
-            self.multi_threads.remove(thread_to_close)
-            self.multi_socks.remove(sock_to_close)
+            self.multicast_threads.remove(thread_to_close)
+            self.multicast_socks.remove(sock_to_close)
             # Tira da GUI
             self.window.group_treeview.delete(f"{addr[0]},{addr[1]}")
         else:
@@ -700,11 +715,11 @@ class MulticastNewsPeer:
         msg = bytes(json.dumps({
             'alert': alert_data,
             'signature': signature.decode('latin-1'),
-            'address': self.uni_sock.getsockname()
+            'address': self.unicast_sock.getsockname()
         }), 'utf-8')
 
         print("Enviando que a noticia", id_, "de", addr, "é falsa")
-        for sock in self.multi_socks:
+        for sock in self.multicast_socks:
             sock.sendto(msg, sock.getsockname())
 
 
@@ -728,13 +743,13 @@ class ConnectedPeer:
         """Adiciona a noticia ao par e recalcula a reputação"""
         # Checa por ID repetido
         if id_ in self.news:
-            raise IndexError(f"Id {id_} da notícia é repetido")
+            raise RepeatedIdError(f"Id {id_} da notícia é repetido")
 
         # Checa por texto repetido
         # TODO: Muito ineficiente, calcular um hash ou algo parecido
         for key in self.news:
             if self.news[key].text == text:
-                raise ValueError(f"Notícia já existe com outro id")
+                raise RepeatedTextError(f"Notícia já existe com outro id")
 
         # Cria a noticia
         self.news[id_] = News(id_, text)
@@ -749,6 +764,12 @@ class ConnectedPeer:
         self.reputation -= 1
 
 
+class RepeatedTextError(ValueError):
+    pass
+
+class RepeatedIdError(ValueError):
+    pass
+    
 class News:
     """
     Representa uma noticia.
