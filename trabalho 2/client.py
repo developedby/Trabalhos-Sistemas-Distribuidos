@@ -6,6 +6,11 @@ import Pyro5.api as pyro
 
 @pyro.expose
 class HelloWorldClient:
+    def notify(self, text: str):
+        print(text)
+
+
+class Client:
     def __init__(self, text: str, server_name: str):
         self._daemon = pyro.Daemon()
         self.uri = self._daemon.register(HelloWorldClient)
@@ -18,10 +23,7 @@ class HelloWorldClient:
 
         self._daemon.requestLoop()
 
-    def notify(self, text: str):
-        print(text)
-
 
 if __name__ == "__main__":
     print("Starting client")
-    HelloWorldClient("Hello world", 'server')
+    Client("Hello world", 'server')
