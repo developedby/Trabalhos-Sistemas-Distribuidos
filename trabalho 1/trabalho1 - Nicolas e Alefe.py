@@ -4,6 +4,12 @@ As notícias são enviadas por multicast e assinadas usando DSA.
 É possível entrar em multiplos grupos multicast.
 A aplicação também permite marcar notícias como sendo falsas.
 Mantém um score de reputação baseado no numero de noticias falsas.
+
+Python 3 somente.
+
+Autores:
+    Nicolas Abril
+    Álefe Felipe Gonçalves Pereira Dias
 """
 
 import json
