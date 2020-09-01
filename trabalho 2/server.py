@@ -45,3 +45,4 @@ class HelloWorldServer:
 if __name__ == "__main__":
     print("Starting server")
     HelloWorldServer()
+import requests
