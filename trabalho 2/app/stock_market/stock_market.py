@@ -3,34 +3,9 @@ import json
 
 import Pyro5.api as pyro
 
-from .gui import StockMarketGui
+from . import StockMarketGui
 from ..enums import OrderType
 from ..order import Order
-
-the_stock_market = None
-
-@pyro.expose
-class StockMarketPyro:
-    def create_order(self, order: Order):
-        global the_stock_market
-        the_stock_market.create_order(order)
-
-    def get_quotes(self, tickers: Collection[str]):
-        global the_stock_market
-        quotes = {ticker: float('inf') for ticker in tickers}
-        for order in the_stock_market.sell_orders:
-            if order.ticker in tickers:
-                quotes[order.ticker] = min(order.price, quotes[order.ticker])
-        return quotes
-
-    def get_orders(self, client_ids: Collection[str]):
-        global the_stock_market
-        pass
-
-    def get_stock_list(self):
-        global the_stock_market
-        return the_stock_market.stocks
-
 
 class StockMarket:
     def __init__(self, init_from_file=True):
@@ -98,6 +73,25 @@ class StockMarket:
     def add_client(self, client_id: str):
         pass
 
+    @pyro.expose
+    def create_order(self, order: Order):
+        self.create_order(order)
+
+    @pyro.expose
+    def get_quotes(self, tickers: Collection[str]):
+        quotes = {ticker: float('inf') for ticker in tickers}
+        for order in self..sell_orders:
+            if order.ticker in tickers:
+                quotes[order.ticker] = min(order.price, quotes[order.ticker])
+        return quotes
+
+    @pyro.expose
+    def get_orders(self, client_ids: Collection[str]):
+        pass
+
+    @pyro.expose
+    def get_stock_list(self):
+        return self.stocks
 
 if __name__ == "__main__":
     the_stock_market = StockMarket(init_from_file=True)

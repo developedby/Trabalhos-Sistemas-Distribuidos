@@ -1,68 +1,31 @@
-import time
 import datetime
-import json
-import collections
+import os
+import sqlite3
+import sys
+import time
+from typing import Sequence
+
+os.environ["PYRO_LOGFILE"] = "stockmarket.log"
+os.environ["PYRO_LOGLEVEL"] = "DEBUG"
 
 import Pyro5.api as pyro
-
-import sys
-sys.path.append('..')
-from gui import StockMarketGui
-
-from enums import OrderType
-from order import Order
-
 import yfinance as yf
-import sqlite3
 
-the_stock_market = None
-
-@pyro.expose
-class StockMarketPyro:
-    def create_order(self, order: Order):
-        global the_stock_market
-        the_stock_market.create_order(order)
-
-    # def get_quotes(self, tickers: collections.Collection[str]):
-    def get_quotes(self, tickers: []):
-        global the_stock_market
-        quotes = {ticker: float('inf') for ticker in tickers}
-        for order in the_stock_market.sell_orders:
-            if order.ticker in tickers:
-                quotes[order.ticker] = min(order.price, quotes[order.ticker])
-        return quotes
-
-    # def get_orders(self, client_ids: Collection[str]):
-    def get_orders(self, client_ids:[]):
-        global the_stock_market
-        pass
-
-    def get_stock_list(self):
-        global the_stock_market
-        return the_stock_market.stocks
+from ..enums import OrderType
+from ..order import Order
+from .gui import StockMarketGui
 
 
 class StockMarket:
-    def __init__(self):
-        stocks = set()
-        buy_orders = []
-        sell_orders = []
+    def __init__(self, db_path: str, use_pyro=True):
+        # Checa se o banco de dados existe
+        if not os.path.exists(db_path):
+            raise ValueError(f"The database file \"{db_path}\" doesn't exist.")
+        # Tenta se conectar com o nameserver
+        nameserver = pyro.locate_ns()
 
-        self.gui = StockMarketGui()
-
-    def _init_pyro(self):
-        global the_stock_market
-        the_stock_market = self
-        # Registra como objeto Pyro
-        self.daemon = pyro.Daemon()
-        uri = self.daemon.register(StockMarketPyro)
-
-        # Registra o nome no nameserver
-        name_server = pyro.locate_ns()
-        name_server.register('stockmarket', uri)
-
-    def start(self):
-        self.db = sqlite3.connect('stock_market.db')
+        # Conecta com o banco de dados e inicializa
+        self.db = sqlite3.connect(db_path)
         self.db_cursor = self.db.cursor()
         self.db_cursor.execute('delete from BuyOrder')
         self.db_cursor.execute('delete from Client  ')
@@ -70,94 +33,29 @@ class StockMarket:
         self.db_cursor.execute('delete from SellOrder')
         self.db_cursor.execute('delete from StockTransaction')
         self.add_client("Market")
-        # self.gui.start()
-        # self.daemon.requestLoop()
 
-    def check_ticker(self, ticker: str):
+        # Cria a GUI
+        self.gui = StockMarketGui(self, daemon=True)
+
+        # Começa a servir a aplicação pelo Pyro
+        if use_pyro:
+            self.daemon = pyro.Daemon()
+            uri = self.daemon.register(self)
+            nameserver.register('stockmarket', uri)
+            self.running = True
+            print("Rodando")
+            self.daemon.requestLoop(loopCondition=lambda: self.running)
+            self.close()
+
+    def close(self):
+        self.db.close()
+
+    def ticker_exists(self, ticker: str):
         """Verifica se ação existe na api"""
         dumb_data = yf.download(ticker, period="1d")
         return len(dumb_data) > 0
 
-    def get_quotes(self, stocks):
-        data = yf.download(stocks, period="1d")["Adj Close"]
-        return data.values
-        #Mostrar para o usuário
-
-    def create_order(self, order: Order):
-        '''Cria ordem de compra ou venda, se possível executa a transação'''
-
-        #Verifica se a ordem é valida
-        if (order.is_expired()):
-            print("Order is expired")
-            #TODO: Return code
-            return 
-
-        #Verifica se cliente existe
-        client_id = self.db_cursor.execute(
-            f'''select id from Client 
-                    where name = '{order.client_id}' ''').fetchone()
-        if not client_id:
-            print("Client not found")
-            #Avisa usuário?
-            #TODO: Return code
-            return 
-        client_id = client_id[0]
-        
-        #Verifica o estado das ordens
-        self.check_orders_are_expired()
-
-        #Checa se o cliente tem as ações que ele quer vender
-        data = self.db_cursor.execute(
-            f'''select os.* from Client as c 
-                inner join OwnedStock as os on c.id = os.client_id 
-                    where os.ticker = '{order.ticker}' and 
-                    c.id = {client_id} ''').fetchone()
-        current_ticker_amount = data[2] if (data) else 0
-        if ((order.type == OrderType.SELL) and ((data is None) or current_ticker_amount < order.amount)):
-            print("Client doesn't have enough tickers to sell")
-            #Avisa usuário?
-            #TODO: Return code
-            return
-
-        #Pega o valor do mercado
-        real_price = self.get_quotes([order.ticker])
-        if (len(real_price) == 0):
-            print("Ticker not found in the market")
-            #Avisa usuário?
-            #TODO: Return code
-            return
-        real_price = real_price[0]
-        
-        #Checa por possíveis combinações
-        matching_type = "BuyOrder" if order.type == OrderType.SELL else "SellOrder"
-
-        #Se eu quero vender, verifico se os clientes internos querem comprar por um preço maior que o do mercado (prioriza quem está vendendo)
-        target_price = max(order.price, real_price)
-
-        matching_data = self.db_cursor.execute(
-            f'''select * from {matching_type} 
-                where ticker = '{order.ticker}' and 
-                price {'>=' if order.type == OrderType.SELL else '<='} {target_price} and 
-                active = 1 order by price {'desc' if order.type == OrderType.SELL else 'asc'}''').fetchall()
-        
-        #Se os clientes internos tem um preço melhor que o do mercado transaciona o máximo possível
-        if (len(matching_data) > 0):
-            print("Doing transaction with internal client")
-            order.amount = self.trade_with_internal_clients(matching_data, order, client_id, matching_type)
-        if (order.amount > 0):
-            #Se o mercado tem um preço melhor que o dos clientes internos restantes
-            if ((order.type == OrderType.SELL and order.price <= real_price) or (order.type == OrderType.BUY and order.price > real_price)):
-                print("Doing transaction with market")
-                self.trade_with_market(order, client_id, real_price, matching_type)
-            else:
-                print("Creating order")
-                self.db_cursor.execute(
-                    f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active) 
-                            values ('{order.ticker}', {order.amount}, {order.price}, '{order.expiry_date}', 
-                            {client_id}, 1)''')
-        self.db.commit()
-
-    def trade_with_internal_clients(self, matching_data: [], order: Order, client_id: int, matching_type: str):
+    def trade_with_internal_clients(self, matching_data: Sequence, order: Order, client_id: int, matching_type: str):
         '''Executa uma ou mais transações com clientes internos'''        
         
         #Pega a quantidade de ações para serem transicionadas
@@ -296,7 +194,6 @@ class StockMarket:
                     datetime(expiry_date) < datetime('now')''')
         self.db.commit()
 
-
     def try_execute_active_orders(self):
         '''Tenta executar todas as transações que estão em espera com o merdado'''
 
@@ -311,7 +208,7 @@ class StockMarket:
         self.try_trade_with_market(OrderType.BUY, active_buy_orders)
         self.try_trade_with_market(OrderType.SELL, active_sell_orders)
     
-    def try_trade_with_market(self, order_type: OrderType, data: []):
+    def try_trade_with_market(self, order_type: OrderType, data: Sequence):
         for order_data in data:
             ticker = order_data[2]
             real_price = self.get_quotes([ticker])
@@ -333,7 +230,6 @@ class StockMarket:
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
 
-
     def add_client(self, client_name: str):
         '''Insere um novo cliente no sistema'''
 
@@ -352,92 +248,86 @@ class StockMarket:
                     values ('{client_name}')''')
         self.db.commit()
 
-    def close(self):
-        self.db.close()
+    @pyro.expose
+    def create_order(self, order: Order):
+        '''Cria ordem de compra ou venda, se possível executa a transação'''
 
+        #Verifica se a ordem é valida
+        if (order.is_expired()):
+            print("Order is expired")
+            #TODO: Return code
+            return 
 
-if __name__ == "__main__":
-    the_stock_market = StockMarket()
-    the_stock_market.start()
-    print("\n\nteste adicionar cliente")
-    the_stock_market.add_client("Teste")
-    the_stock_market.add_client("Teste")
-    the_stock_market.add_client("Teste2")
+        #Verifica se cliente existe
+        client_id = self.db_cursor.execute(
+            f'''select id from Client 
+                    where name = '{order.client_id}' ''').fetchone()
+        if not client_id:
+            print("Client not found")
+            #Avisa usuário?
+            #TODO: Return code
+            return 
+        client_id = client_id[0]
+        
+        #Verifica o estado das ordens
+        self.check_orders_are_expired()
 
-    print("\n\nverificar ação que não existe")
-    print(the_stock_market.check_ticker("blablabla"))
-    print(the_stock_market.get_quotes(["blablabla"]))
-    
-    print("\n\nverificar ação que existe")
-    print(the_stock_market.check_ticker("ABEV3.SA"))
-    print(the_stock_market.get_quotes(["ABEV3.SA"]))
-    
-    print("\n\nTestando criar uma ordem velha")
-    order = Order("blalblaaksd", OrderType.SELL, 'blablabla', 1000, 10.0, datetime.datetime.strptime("21/11/06 16:30", "%d/%m/%y %H:%M"))
-    the_stock_market.create_order(order)
-    
-    print("\n\nTestando criar uma ordem com um cliente invalido")
-    order.expiry_date = datetime.datetime.strptime("2021-11-21 16:30:00", "%Y-%m-%d %H:%M:%S")
-    the_stock_market.create_order(order)
-    
-    print("\n\nTestando criar uma ordem com uma ação incorreta")
-    order.type = OrderType.BUY
-    order.client_id = "Teste"
-    the_stock_market.create_order(order)
-    
-    print("\n\nTestando criar uma ordem de venda com uma ação que o cliente não tem")
-    order.type = OrderType.SELL
-    order.ticker = "ITSA4.SA"
-    the_stock_market.create_order(order)
+        #Checa se o cliente tem as ações que ele quer vender
+        data = self.db_cursor.execute(
+            f'''select os.* from Client as c 
+                inner join OwnedStock as os on c.id = os.client_id 
+                    where os.ticker = '{order.ticker}' and 
+                    c.id = {client_id} ''').fetchone()
+        current_ticker_amount = data[2] if (data) else 0
+        if ((order.type == OrderType.SELL) and ((data is None) or current_ticker_amount < order.amount)):
+            print("Client doesn't have enough tickers to sell")
+            #Avisa usuário?
+            #TODO: Return code
+            return
 
-    print("\n\nTestando criar uma ordem de compra do mercado")
-    order.ticker = "ABEV3.SA"
-    order.type = OrderType.BUY
-    order.price = 100.0
-    the_stock_market.create_order(order)
+        #Pega o valor do mercado
+        real_price = self.get_quotes([order.ticker])
+        if (len(real_price) == 0):
+            print("Ticker not found in the market")
+            #Avisa usuário?
+            #TODO: Return code
+            return
+        real_price = real_price[0]
+        
+        #Checa por possíveis combinações
+        matching_type = "BuyOrder" if order.type == OrderType.SELL else "SellOrder"
 
-    print("\n\nTestando colocar uma ordem de venda na espera para vencer em pouco tempo")
-    order.expiry_date = datetime.datetime.now() + datetime.timedelta(seconds=2)
-    order.expiry_date = datetime.datetime.strptime(order.expiry_date.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S")
-    print(order.expiry_date)
-    order.type = OrderType.SELL
-    order.price = 20.0
-    order.client_id = "Teste"
-    order.amount = 900
-    the_stock_market.create_order(order)
+        #Se eu quero vender, verifico se os clientes internos querem comprar por um preço maior que o do mercado (prioriza quem está vendendo)
+        target_price = max(order.price, real_price)
 
-    time.sleep(3)
-    print("\n\nTestando criar uma ordem de compra com cliente interno mas vai ser com mercado pq está expirado")
-    order.expiry_date = datetime.datetime.strptime("21/11/21 16:30", "%d/%m/%y %H:%M")
-    order.type = OrderType.BUY
-    order.price = 20.0
-    order.client_id = "Teste2"
-    the_stock_market.create_order(order)
+        matching_data = self.db_cursor.execute(
+            f'''select * from {matching_type} 
+                where ticker = '{order.ticker}' and 
+                price {'>=' if order.type == OrderType.SELL else '<='} {target_price} and 
+                active = 1 order by price {'desc' if order.type == OrderType.SELL else 'asc'}''').fetchall()
+        
+        #Se os clientes internos tem um preço melhor que o do mercado transaciona o máximo possível
+        if (len(matching_data) > 0):
+            print("Doing transaction with internal client")
+            order.amount = self.trade_with_internal_clients(matching_data, order, client_id, matching_type)
+        if (order.amount > 0):
+            #Se o mercado tem um preço melhor que o dos clientes internos restantes
+            if ((order.type == OrderType.SELL and order.price <= real_price) or (order.type == OrderType.BUY and order.price > real_price)):
+                print("Doing transaction with market")
+                self.trade_with_market(order, client_id, real_price, matching_type)
+            else:
+                print("Creating order")
+                self.db_cursor.execute(
+                    f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active) 
+                            values ('{order.ticker}', {order.amount}, {order.price}, '{order.expiry_date}', 
+                            {client_id}, 1)''')
+        self.db.commit()
 
-    print("\n\nRecriando ordem de venda")
-    order.type = OrderType.SELL
-    order.price = 20.0
-    order.client_id = "Teste"
-    order.amount = 900
-    the_stock_market.create_order(order)
+    @pyro.expose
+    def get_quotes(self, tickers: Sequence[str]):
+        data = yf.download(tickers, period="1d")["Adj Close"]
+        return data.values
 
-    print("\n\nTestando criar uma ordem de compra com cliente interno")
-    order.type = OrderType.BUY
-    order.price = 20.0
-    order.amount = 800
-    order.client_id = "Teste2"
-    the_stock_market.create_order(order)
-
-    print("\n\nTestando verificar se o restante da venda vai ser executado pelo banco")
-    the_stock_market.try_execute_active_orders()
-
-    print("\n\nTestando criar uma ordem de compra com cliente interno para ser terminada com o mercado")
-    order.type = OrderType.BUY
-    order.price = 20.0
-    order.amount = 800
-    order.client_id = "Teste2"
-    the_stock_market.create_order(order)
-
-
-
-    # the_stock_market.start()
+    @pyro.expose
+    def get_orders(self, client_ids: Sequence[str]):
+        pass

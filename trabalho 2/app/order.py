@@ -1,6 +1,6 @@
 import datetime
 
-from enums import OrderType
+from .enums import OrderType
 
 
 class Order:
