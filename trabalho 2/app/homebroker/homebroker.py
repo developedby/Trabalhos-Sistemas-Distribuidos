@@ -5,69 +5,31 @@ import Pyro5.api as pyro
 
 from .client import Client
 from ..enums import OrderType
-
-
-the_homebroker = None
-
-
-@pyro.expose
-class ClientConnector:
-    def add_stock_to_quotes(self, ticker: str, client_uri: str):
-        global the_homebroker
-        pass
-
-    def remove_stock_from_quotes(self, ticker: str, client_uri: str):
-        global the_homebroker
-        pass
-
-    def get_current_quotes(self, client_uri: str):
-        global the_homebroker
-        pass
-
-    def add_quote_alert(self, ticker: str,
-                        lower_limit: float, upper_limit: float,
-                        client_uri: str):
-        global the_homebroker
-        pass
-
-    def create_order(self, order: Order):
-        global the_homebroker
-        the_homebroker.create_order(order)
-
-    def add_client(self, client_uri: str):
-        global the_homebroker
-        the_homebroker.clients[client_uri] = Client(client_uri)
+from ..order import Order
 
 
 class Homebroker:
     def __init__(self):
-        self.clients = {}
-        self.stocks = {}  # ticker: preço
-        self.limits_for_alert = {}  # ticker: lista de limites de alerta
+        # Conecta com o nameserver
+        nameserver = pyro.locate_ns()
 
-        self._init_pyro()
-        pass
-
-    def _init_pyro(self):
-        global the_homebroker
-        the_homebroker = self
-        # Registra como objeto Pyro
-        self.daemon = pyro.Daemon()
-        uri_client_connector = self.daemon.register(ClientConnector)
-
-        # Registra o nome no nameserver
-        name_server = pyro.locate_ns()
-        name_server.register('homebroker', uri_client_connector)
-
-        # Cria o proxy da bolsa
-        market_uri = name_server.lookup('stockmarket')
+        # Conecta com a bolsa
+        market_uri = nameserver.lookup('stockmarket')
+        print(market_uri)
         self.market = pyro.Proxy(market_uri)
 
-    def start(self):
-        self.daemon.requestLoop()
+        self.clients = {}
+        self.stocks = {}  # ticker: preço
+        self.alert_limits = {}  # ticker: lista de limites de alerta
 
-    def create_order(self, order: Order):
-        self.market.create_order(order)
+        # Registra no Pyro
+        daemon = pyro.Daemon()
+        my_uri = daemon.register(self)
+        nameserver.register('homebroker', my_uri)
+
+        # Fica respondendo os requests
+        print("Rodando Homebroker")
+        daemon.requestLoop()
 
     def get_quotes_from_market(self):
         quotes = self.market.get_quotes(self.stocks.keys())
@@ -78,11 +40,30 @@ class Homebroker:
         orders = self.market.get_orders(client_ids)
         # Processa as ordens
 
-    def get_stock_list(self):
-        stocks = self.market.get_stock_list()
+    @pyro.expose
+    def add_stock_to_quotes(self, ticker: str, client_uri: str):
+        pass
 
+    @pyro.expose
+    def remove_stock_from_quotes(self, ticker: str, client_uri: str):
+        pass
 
-if __name__ == "__main__":
-    print("Starting server")
-    the_homebroker = Homebroker()
-    the_homebroker.start()
+    @pyro.expose
+    def get_current_quotes(self, client_uri: str):
+        self.get_quotes_from_market()
+        # Filtra so as do cliente
+        pass
+
+    @pyro.expose
+    def add_quote_alert(self, ticker: str,
+                        lower_limit: float, upper_limit: float,
+                        client_uri: str):
+        pass
+
+    @pyro.expose
+    def create_order(self, order: Order):
+        self.market.create_order(order)
+
+    @pyro.expose
+    def add_client(self, client_uri: str):
+        self.clients[client_uri] = Client(client_uri)

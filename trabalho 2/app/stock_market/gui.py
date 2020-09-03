@@ -17,4 +17,3 @@ class StockMarketGui(threading.Thread):
     def close(self):
         self.main_window.destroy()
         self.app.running = False
-    

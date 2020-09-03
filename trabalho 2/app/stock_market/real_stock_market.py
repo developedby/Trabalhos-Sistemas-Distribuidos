@@ -43,7 +43,7 @@ class StockMarket:
             uri = self.daemon.register(self)
             nameserver.register('stockmarket', uri)
             self.running = True
-            print("Rodando")
+            print("Rodando Stock Market")
             self.daemon.requestLoop(loopCondition=lambda: self.running)
             self.close()
 
