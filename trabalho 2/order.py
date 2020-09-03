@@ -1,6 +1,6 @@
 import datetime
 
-from .enums import OrderType
+from enums import OrderType
 
 
 class Order:
@@ -31,4 +31,4 @@ class Order:
         self.expiry_date = expiry_date
 
     def is_expired(self):
-        return datetime.datetime.now() > self.expiry_date
+        return datetime.datetime.now() >= self.expiry_date
