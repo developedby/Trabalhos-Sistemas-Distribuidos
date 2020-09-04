@@ -13,11 +13,11 @@ the_stock_market.add_client("Teste")
 the_stock_market.add_client("Teste2")
 
 print("\n\nverificar ação que não existe")
-print(the_stock_market.ticker_exists("blablabla"))
+print(the_stock_market.check_ticker_exists("blablabla"))
 print(the_stock_market.get_quotes(["blablabla"]))
 
 print("\n\nverificar ação que existe")
-print(the_stock_market.ticker_exists("ABEV3.SA"))
+print(the_stock_market.check_ticker_exists("ABEV3.SA"))
 print(the_stock_market.get_quotes(["ABEV3.SA"]))
 
 print("\n\nTestando criar uma ordem velha")
@@ -30,7 +30,7 @@ the_stock_market.create_order(order)
 
 print("\n\nTestando criar uma ordem com uma ação incorreta")
 order.type = OrderType.BUY
-order.client_id = "Teste"
+order.client_name = "Teste"
 the_stock_market.create_order(order)
 
 print("\n\nTestando criar uma ordem de venda com uma ação que o cliente não tem")
@@ -50,7 +50,7 @@ order.expiry_date = datetime.datetime.strptime(order.expiry_date.strftime("%Y-%m
 print(order.expiry_date)
 order.type = OrderType.SELL
 order.price = 20.0
-order.client_id = "Teste"
+order.client_name = "Teste"
 order.amount = 900
 the_stock_market.create_order(order)
 
@@ -59,13 +59,13 @@ print("\n\nTestando criar uma ordem de compra com cliente interno mas vai ser co
 order.expiry_date = datetime.datetime.strptime("21/11/21 16:30", "%d/%m/%y %H:%M")
 order.type = OrderType.BUY
 order.price = 20.0
-order.client_id = "Teste2"
+order.client_name = "Teste2"
 the_stock_market.create_order(order)
 
 print("\n\nRecriando ordem de venda")
 order.type = OrderType.SELL
 order.price = 20.0
-order.client_id = "Teste"
+order.client_name = "Teste"
 order.amount = 900
 the_stock_market.create_order(order)
 
@@ -73,7 +73,7 @@ print("\n\nTestando criar uma ordem de compra com cliente interno")
 order.type = OrderType.BUY
 order.price = 20.0
 order.amount = 800
-order.client_id = "Teste2"
+order.client_name = "Teste2"
 the_stock_market.create_order(order)
 
 print("\n\nTestando verificar se o restante da venda vai ser executado pelo banco")
@@ -83,5 +83,5 @@ print("\n\nTestando criar uma ordem de compra com cliente interno para ser termi
 order.type = OrderType.BUY
 order.price = 20.0
 order.amount = 800
-order.client_id = "Teste2"
+order.client_name = "Teste2"
 the_stock_market.create_order(order)

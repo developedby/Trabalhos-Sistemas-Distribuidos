@@ -18,6 +18,7 @@ class Client:
 
         self.running = True
         self.gui = ClientGui(self)
+        print("Rodando cliente")
         self.daemon.requestLoop(loopCondition=lambda: self.running)
 
     def create_order(self, order: Order):
