@@ -4,7 +4,7 @@ import Pyro5.api as pyro
 
 from ..enums import OrderType
 from .gui import ClientGui
-from ..order import Order
+from ..order import Order, Transaction
 
 
 class Client:
@@ -62,13 +62,13 @@ class Client:
         pass
 
     @pyro.expose
-    def notify_limit(self):
+    def notify_limit(self, quote):
         pass
 
-    @pyro.expose
-    def notify_quote(self):
-        pass
+    # @pyro.expose
+    # def notify_expired_order(self, ticker):
+    #     pass
 
     @pyro.expose
-    def notify_order(self):
+    def notify_order(self, transation: Transaction, active_orders: Sequence[Order], expired_orders: Sequence[str]):
         pass

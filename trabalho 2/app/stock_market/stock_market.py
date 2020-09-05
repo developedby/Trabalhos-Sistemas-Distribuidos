@@ -28,11 +28,13 @@ class StockMarket:
         # Conecta com o banco de dados e inicializa
         self.db = sqlite3.connect(db_path)
         self.db_cursor = self.db.cursor()
-        self.db_cursor.execute('delete from BuyOrder')
-        self.db_cursor.execute('delete from Client  ')
-        self.db_cursor.execute('delete from OwnedStock')
-        self.db_cursor.execute('delete from SellOrder')
-        self.db_cursor.execute('delete from StockTransaction')
+        #tirar depois
+        # self.db_cursor.execute('delete from BuyOrder')
+        # self.db_cursor.execute('delete from Client  ')
+        # self.db_cursor.execute('delete from OwnedStock')
+        # self.db_cursor.execute('delete from SellOrder')
+        # self.db_cursor.execute('delete from StockTransaction')
+        #
         self.add_client("Market")
 
         # Cria a GUI
@@ -43,6 +45,7 @@ class StockMarket:
             self.daemon = pyro.Daemon()
             uri = self.daemon.register(self)
             nameserver.register('stockmarket', uri)
+            nameserver._pyroRelease()
             self.running = True
             print("Rodando Stock Market")
             self.daemon.requestLoop(loopCondition=lambda: self.running)
@@ -52,10 +55,6 @@ class StockMarket:
         """Termina o aplicativo. Chamado após fechar a GUI e o Pyro."""
         self.db.close()
 
-    def check_ticker_exists(self, ticker: str) -> bool:
-        """Verifica se a ação existe na api."""
-        dumb_data = yf.download(ticker, period="1d")
-        return len(dumb_data) > 0
 
     def update_owned_stock(self, ticker: str, change_amount: float, client_id: int):
         '''Atualiza ou insere uma quantidade de ações para um cliente.'''
@@ -257,7 +256,8 @@ class StockMarket:
         self.update_owned_stock(order.ticker, change_amount, client_id)            
 
         self.db.commit()
-
+    
+    @pyro.expose
     def add_client(self, client_name: str) -> MarketErrorCode:
         '''Insere um novo cliente no sistema.'''
 
@@ -359,6 +359,12 @@ class StockMarket:
         return orders
 
     @pyro.expose
+    def check_ticker_exists(self, ticker: str) -> bool:
+        """Verifica se a ação existe na api."""
+        dumb_data = yf.download(ticker, period="1d")
+        return len(dumb_data) > 0
+    
+    @pyro.expose
     def create_order(self, order: Order) -> MarketErrorCode:
         '''
         Cria ordem de compra ou venda e,
@@ -455,6 +461,7 @@ class StockMarket:
         name_to_id = self.get_client_ids_by_names(client_names)
         ids = tuple(name_to_id.values())
         id_to_name = {name_to_id[name]: name for name in name_to_id}
+        
         data = self.db_cursor.execute(
             f"""select bo.ticker, so.client_id, bo.client_id, t.amount, t.price, t.datetime from
                 StockTransaction as t
@@ -469,7 +476,7 @@ class StockMarket:
                 transactions[id_to_name[entry[1]]].append(Transaction(
                     ticker=entry[0],
                     seller_name=id_to_name[entry[1]],
-                    buyer_name=id_to_name[entry[2]],
+                    buyer_name=id_to_name[entry[2]] if entry[2] in id_to_name else "Market",
                     amount=entry[3],
                     price=entry[4],
                     datetime=datetime.datetime.strptime(entry[5], "%Y-%m-%d %H:%M:%S")
@@ -477,10 +484,13 @@ class StockMarket:
             if entry[2] in ids:
                 transactions[id_to_name[entry[2]]].append(Transaction(
                     ticker=entry[0],
-                    seller_name=id_to_name[entry[1]],
+                    seller_name=id_to_name[entry[1]] if entry[1] in id_to_name else "Market",
                     buyer_name=id_to_name[entry[2]],
                     amount=entry[3],
                     price=entry[4],
                     datetime=datetime.datetime.strptime(entry[5], "%Y-%m-%d %H:%M:%S")
                 ))
         return transactions
+
+    def close(self):
+

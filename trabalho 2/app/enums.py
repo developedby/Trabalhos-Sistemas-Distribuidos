@@ -17,3 +17,10 @@ class MarketErrorCode(Enum):
     EXPIRED_ORDER = auto()
     NOT_ENOUGH_STOCK = auto()
     UNKNOWN_TICKER = auto()
+
+class HomebrokerErrorCode(Enum):
+    SUCCESS = auto()
+    FORBIDDEN_NAME = auto()
+    NOT_ENOUGH_STOCK = auto()
+    UNKNOWN_TICKER = auto()
+
