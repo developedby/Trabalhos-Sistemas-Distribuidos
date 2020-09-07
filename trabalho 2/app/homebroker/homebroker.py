@@ -1,11 +1,12 @@
 import datetime
 import threading
 import time
+from typing import Dict
 
 import Pyro5.api as pyro
 
 from .client import Client
-from ..enums import OrderType, MarketErrorCode
+from ..enums import OrderType, MarketErrorCode, HomebrokerErrorCode
 from ..order import Order
 
 
@@ -60,8 +61,8 @@ class Homebroker:
                 for alert in self.alert_limits[ticker]:
                     if (alert[1] == quotes_copy[ticker]) or (alert[2] == quotes_copy[ticker]):
                         #Chama a callback do cliente
-                        self.clients[alert[0]].proxy.notify_limit(ticker)
-                        self.alert_limits.[ticker].remove(alert)
+                        self.clients[alert[0]].proxy.notify_limit(ticker, quotes_copy[ticker])
+                        self.alert_limits[ticker].remove(alert)
                 self.alerts_lock.release()
 
     def update_orders(self, market_proxy: pyro.Proxy):
@@ -84,14 +85,14 @@ class Homebroker:
             for order in orders_client:
                 new_orders_client[order.client_name].append(order)
                 new_order = (order.client_name, order.ticker)
-                new_orders_set.add(new_order_set)
+                new_orders_set.add(new_order)
         
         clients_orders_set = set()
         self.clients_lock.acquire()
         for client in self.clients:
             for order in client.orders:
                 new_order = (order.client_name, order.ticker)
-                clients_orders_set.add(new_order_set)
+                clients_orders_set.add(new_order)
         self.clients_lock.release()
         
         expired_orders = clients_orders_set.difference(new_orders_set)
@@ -130,7 +131,7 @@ class Homebroker:
             self.update_orders(self.market_proxy_updates)
 
     @pyro.expose
-    def add_stock_to_quotes(self, ticker: str, client_name: str):
+    def add_stock_to_quotes(self, ticker: str, client_name: str) -> HomebrokerErrorCode:
         """Adiciona uma ação à lista de cotações."""
         if (not self.market_proxy.check_ticker_exists(ticker)):
             return HomebrokerErrorCode.UNKNOWN_TICKER
@@ -140,7 +141,8 @@ class Homebroker:
         return HomebrokerErrorCode.SUCCESS
 
     @pyro.expose
-    def remove_stock_from_quotes(self, ticker: str, client_name: str):
+    def remove_stock_from_quotes(self, ticker: str, client_name: str) -> HomebrokerErrorCode:
+        """Remove uma ação da lista de cotações de um cliente."""
         try:
             self.clients[client_name].quotes.remove(ticker)
         except ValueError:
@@ -155,24 +157,36 @@ class Homebroker:
         return HomebrokerErrorCode.SUCCESS
 
     @pyro.expose
-    def get_current_quotes(self, client_name: str):
+    def get_current_quotes(self, client_name: str) -> Dict[str, float]:
+        """Retorna as cotações atuais das ações que o cliente está interessado."""
         self.update_quotes()
-        client_quote = {ticker: self.quotes[ticker] for ticker in self.quotes.keys() if ticker in self.client[client_name].owned_stocks}
-        return client_quote
+        client_quotes = {
+            ticker: self.quotes[ticker] for ticker in self.quotes.keys()
+            if ticker in self.client[client_name].owned_stocks}
+        return client_quotes
 
     @pyro.expose
     def add_quote_alert(self, ticker: str,
                         lower_limit: float, upper_limit: float,
-                        client_name: str):
+                        client_name: str) -> HomebrokerErrorCode:
+        """
+        Adiciona limites de valor pra alertar um cliente sobre uma ação.
+        Alerta quando a ação passa do mínimo ou do máximo.
+        """
+        if not self.market_proxy.check_ticker_exists(ticker):
+            return HomebrokerErrorCode.UNKNOWN_TICKER
+
         self.alerts_lock.acquire()
         self.alert_limits[ticker].append((client_name, lower_limit, upper_limit))
         self.alerts_lock.release()
+        return HomebrokerErrorCode.SUCCESS
 
     @pyro.expose
-    def create_order(self, order: Order):
+    def create_order(self, order: Order) -> HomebrokerErrorCode:
+        """Cria uma ordem de compra ou de venda."""
         self.orders_lock.acquire()
         error = self.market_proxy.create_order(order)
-        if (error != SUCCESS):
+        if (error != MarketErrorCode.SUCCESS):
             self.orders_lock.release()
             return HomebrokerErrorCode[error.name]
 
@@ -187,7 +201,7 @@ class Homebroker:
         self.clients_lock.acquire()
         if (client_name in self.clients):
             self.clients[client_name].proxy._proxyRelease()
-            self.clients[client_name].proxy = Proxy(client_uri)
+            self.clients[client_name].proxy = pyro.Proxy(client_uri)
             self.clients_lock.release()
         else:
             self.clients[client_name] = Client(client_uri, client_name)

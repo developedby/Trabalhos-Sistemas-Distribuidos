@@ -55,7 +55,6 @@ class StockMarket:
         """Termina o aplicativo. Chamado após fechar a GUI e o Pyro."""
         self.db.close()
 
-
     def update_owned_stock(self, ticker: str, change_amount: float, client_id: int):
         '''Atualiza ou insere uma quantidade de ações para um cliente.'''
         # Pega o id da entrada no db, para a quantidade que o cliente tem daquela ação
@@ -363,7 +362,7 @@ class StockMarket:
         """Verifica se a ação existe na api."""
         dumb_data = yf.download(ticker, period="1d")
         return len(dumb_data) > 0
-    
+
     @pyro.expose
     def create_order(self, order: Order) -> MarketErrorCode:
         '''
@@ -491,6 +490,3 @@ class StockMarket:
                     datetime=datetime.datetime.strptime(entry[5], "%Y-%m-%d %H:%M:%S")
                 ))
         return transactions
-
-    def close(self):
-

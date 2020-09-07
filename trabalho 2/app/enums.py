@@ -23,4 +23,3 @@ class HomebrokerErrorCode(Enum):
     FORBIDDEN_NAME = auto()
     NOT_ENOUGH_STOCK = auto()
     UNKNOWN_TICKER = auto()
-
