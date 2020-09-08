@@ -1,3 +1,3 @@
 from app.homebroker import Homebroker
 
-homebroker = Homebroker()
+homebroker = Homebroker(5)

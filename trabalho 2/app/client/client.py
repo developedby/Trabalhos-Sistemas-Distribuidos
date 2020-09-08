@@ -1,6 +1,9 @@
+import sys
 import threading
+from typing import Sequence
 
 import Pyro5.api as pyro
+from Pyro5.errors import excepthook as pyro_excepthook
 
 from ..enums import OrderType, HomebrokerErrorCode
 from .gui import ClientGui
@@ -9,8 +12,9 @@ from ..order import Order, Transaction
 
 class Client:
     def __init__(self):
-        name_server = pyro.locate_ns()
-        homebroker_uri = name_server.lookup('homebroker')
+        sys.excepthook = pyro_excepthook
+        with pyro.locate_ns() as name_server:
+            homebroker_uri = name_server.lookup('homebroker')
         self.homebroker = pyro.Proxy(homebroker_uri)
 
         self.daemon = pyro.Daemon()
@@ -21,11 +25,16 @@ class Client:
         self.running = True
         self.gui = ClientGui(self)
         print("Rodando cliente")
-        self.daemon.requestLoop(loopCondition=lambda: self.running)
+        try:
+            self.daemon.requestLoop(loopCondition=lambda: self.running)
+        finally:
+            self.homebroker._pyroClaimOwnership()
+            self.homebroker._pyroRelease()
 
     def create_order(self, order: Order):
         """Cria uma ordem de compra ou venda para uma ação."""
         error_code = self.homebroker.create_order(order)
+        error_code = HomebrokerErrorCode(error_code)
         if error_code is not HomebrokerErrorCode.SUCCESS:
             # TODO: Mostra um erro
             pass
@@ -41,6 +50,7 @@ class Client:
         """
         error_code = self.homebroker.add_quote_alert(
             ticker, lower_limit, upper_limit, self.name)
+        error_code = HomebrokerErrorCode(error_code)
         if error_code is not HomebrokerErrorCode.SUCCESS:
             # TODO: Mostra um erro
             pass
@@ -55,6 +65,7 @@ class Client:
         :param ticker: Nome da ação.
         """
         error_code = self.homebroker.add_stock_to_quotes(ticker, self.name)
+        error_code = HomebrokerErrorCode(error_code)
         if error_code is not HomebrokerErrorCode.SUCCESS:
             # TODO: Mostra um erro
             pass
@@ -69,6 +80,7 @@ class Client:
         :param ticker: Nome da ação.
         """
         error_code = self.homebroker.remove_stock_from_quotes(ticker, self.name)
+        error_code = HomebrokerErrorCode(error_code)
         if error_code is not HomebrokerErrorCode.SUCCESS:
             # TODO: Mostra um erro
             pass
