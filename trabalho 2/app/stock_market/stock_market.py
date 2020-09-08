@@ -5,7 +5,7 @@ import sqlite3
 import sys
 import threading
 import time
-from typing import List, Mapping, Sequence, Optional, Iterable
+from typing import Dict, List, Mapping, Sequence, Optional, Iterable
 
 #os.environ["PYRO_LOGFILE"] = "stockmarket.log"
 #os.environ["PYRO_LOGLEVEL"] = "DEBUG"
@@ -23,14 +23,25 @@ class StockMarket:
         # Checa se o banco de dados existe
         if not os.path.exists(db_path):
             raise ValueError(f"The database file \"{db_path}\" doesn't exist.")
+
         sys.excepthook = pyro_excepthook
+        self.datetime_format = '%Y-%m-%d %H:%M:%S'
+
         # Tenta se conectar com o nameserver
         nameserver = pyro.locate_ns()
+
+        # Registra as serializações
+        pyro.register_class_to_dict(Order, Order.to_dict)
+        pyro.register_dict_to_class('Order', Order.from_dict)
+        pyro.register_class_to_dict(Transaction, Transaction.to_dict)
+        pyro.register_dict_to_class('Transaction', Transaction.from_dict)
+
         # Conecta com o banco de dados e inicializa
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db_cursor = self.db.cursor()
         self.db_lock = threading.Lock()
-        #tirar depois
+
+        # tirar depois
         self.db_execute('delete from BuyOrder')
         self.db_execute('delete from Client')
         self.db_execute('delete from OwnedStock')
@@ -98,7 +109,7 @@ class StockMarket:
                 {buy_order_id},
                 {transaction_amount},
                 {trade_price},
-                datetime('now')
+                {datetime.datetime.now().strftime(self.datetime_format)}
             )''')
 
     def mark_expired_orders_as_inactive(self):
@@ -143,14 +154,18 @@ class StockMarket:
                     ticker=ticker,
                     amount=order_entry[3],
                     price=order_price,
-                    expiry_date=datetime.datetime.strptime(order_entry[5], "%Y-%m-%d %H:%M:%S"),
+                    expiry_date=datetime.datetime.strptime(order_entry[5], self.datetime_format),
                     active=True
                 )
 
                 # Se tiver um preço adequado, executa a transação
                 if ((order_type == OrderType.BUY) and (real_price < order_price)
                         or ((order_type == OrderType.SELL) and (real_price > order_price))):
-                    self.trade_with_market(order, client_id, real_price, order_type.get_matching(), order_id)
+                    self.trade_with_market(
+                        order, client_id,
+                        real_price,
+                        order_type.get_matching(),
+                        order_id)
             # A ação não existe mais no mercado
             else:
                 self.db_execute(
@@ -319,7 +334,7 @@ class StockMarket:
                 id_map[entry[1]] = entry[0]
         return id_map
 
-    def get_client_orders_by_name(self, client_name: str, active_only: bool) -> Sequence[Order]:
+    def get_client_orders_by_name(self, client_name: str, active_only: bool) -> List[Order]:
         """
         Pega todas as ordens de um cliente.
 
@@ -342,7 +357,7 @@ class StockMarket:
                     ticker=order[2],
                     amount=order[3],
                     price=order[4],
-                    expiry_date=datetime.datetime.strptime(order[5], "%Y-%m-%d %H:%M:%S"),
+                    expiry_date=datetime.datetime.strptime(order[5], self.datetime_format),
                     active=bool(order[6])
             ))
 
@@ -361,7 +376,7 @@ class StockMarket:
                     ticker=order[2],
                     amount=order[3],
                     price=order[4],
-                    expiry_date=datetime.datetime.strptime(order[5], "%Y-%m-%d %H:%M:%S"),
+                    expiry_date=datetime.datetime.strptime(order[5], self.datetime_format),
                     active=bool(order[6])
             ))
 
@@ -379,8 +394,8 @@ class StockMarket:
         Cria ordem de compra ou venda e,
         se possível, executa a transação.
         '''
-        # Verifica se a ordem é valida
-        if (order.is_expired()):
+        # Verifica se a ordem expirou
+        if (datetime.datetime.now() >= order.expiry_date):
             print("Order is expired")
             return MarketErrorCode.EXPIRED_ORDER
 
@@ -437,11 +452,13 @@ class StockMarket:
         return MarketErrorCode.SUCCESS
 
     @pyro.expose
-    def get_quotes(self, tickers: Sequence[str]) -> Mapping[str, Optional[float]]:
+    def get_quotes(self, tickers: Sequence[str]) -> Dict[str, Optional[float]]:
         """Retorna a cotação atual de um conjunto de ações."""
         # A cotação atual é sempre a do mercado
         # Os clientes internos tem ordem de compra ativa maior que o preço do mercado
         # Porque eles já teriam vendido para o mercado
+        if not tickers:
+            return {}
         data = yf.download(tickers, period="1d")["Adj Close"]
         if len(tickers) == 1:
             quotes = {tickers[0]: data.values[0] if data.values else None}
@@ -456,7 +473,7 @@ class StockMarket:
     @pyro.expose
     def get_orders(self,
                    client_names: Sequence[str],
-                   active_only: bool) -> Mapping[str, Sequence[Order]]:
+                   active_only: bool) -> Dict[str, List[Order]]:
         """Retorna as ordens de compra e venda de um conjunto de clientes."""
         self.try_execute_active_orders()
         orders = {}
@@ -468,23 +485,29 @@ class StockMarket:
     def get_transactions(
         self,
         client_names: Sequence[str],
-        from_date: Optional[datetime.datetime] = None) -> Mapping[str, Sequence[Transaction]]:
+        from_date: Optional[str] = None) -> Dict[str, List[Transaction]]:
         """Retorna as transações que um cliente executou a partir de uma data."""
-
+        if not client_names:
+            return {}
         name_to_id = self.get_client_ids_by_names(client_names)
         ids = tuple(name_to_id.values())
         id_to_name = {name_to_id[name]: name for name in name_to_id}
-        
-        data = self.db_execute(
+        ids_str = str(ids) if len(ids) > 1 else f'({ids[0]})'
+
+        command = (
             f"""select bo.ticker, so.client_id, bo.client_id, t.amount, t.price, t.datetime from
                 StockTransaction as t
                 inner join SellOrder as so on t.sell_id = so.id
                 inner join BuyOrder as bo on t.buy_id = bo.id
-                where (bo.client_id in {ids} or so.client_id in {ids})""" +
-            (f"and datetime(t.datetime) >= datetime({from_date.strftime('%Y-%m-%d %H:%M:%S')})"
-                if from_date is not None else ''))
+                where (bo.client_id in {ids_str} or so.client_id in {ids_str})""" +
+            (f"and datetime(t.datetime) >= datetime('{from_date}')"
+                if from_date is not None else '')
+        )
+        #print(command)
+        data = self.db_execute(command)
         transactions = {client: [] for client in client_names}
         for entry in data:
+            print(entry[5], from_date)
             if entry[1] in ids:
                 transactions[id_to_name[entry[1]]].append(Transaction(
                     ticker=entry[0],
@@ -492,7 +515,7 @@ class StockMarket:
                     buyer_name=id_to_name[entry[2]] if entry[2] in id_to_name else "Market",
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], "%Y-%m-%d %H:%M:%S")
+                    datetime=datetime.datetime.strptime(entry[5], self.datetime_format)
                 ))
             if entry[2] in ids:
                 transactions[id_to_name[entry[2]]].append(Transaction(
@@ -501,6 +524,6 @@ class StockMarket:
                     buyer_name=id_to_name[entry[2]],
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], "%Y-%m-%d %H:%M:%S")
+                    datetime=datetime.datetime.strptime(entry[5], self.datetime_format)
                 ))
         return transactions

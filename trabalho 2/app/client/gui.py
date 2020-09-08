@@ -1,22 +1,32 @@
+import datetime
 import threading
+from typing import Sequence, Mapping
 
 import Pyro5.api as pyro
 
 from ..enums import HomebrokerErrorCode, OrderType
+from ..order import Order, Transaction
 
 class ClientGui(threading.Thread):
     def __init__(self, app, update_period: int = 500, *args, **kwargs):
         # Referencia a classe Client
         self.app = app
 
+        self.error_messages = {
+            HomebrokerErrorCode.NOT_ENOUGH_STOCK: "Não tem ações suficientes para realizar a ordem de venda.",
+            HomebrokerErrorCode.UNKNOWN_TICKER: "Ação não encontrada."
+        }
+        self.datetime_format = "%Y-%m-%d %H:%M:%S"
+
         # Variaveis pra comunicar mudancas para a gui
         self.update_period = update_period
         self.update_lock = threading.Lock()
-        self.quotes = {}
-        self.alerts = {}
-        self.owned_stock = {}
-        self.active_orders = {}
-        self.new_messages = []
+        self.quotes = {}  # Ticker: price
+        self.owned_stock = {}  # Ticker: amount
+        self.active_orders = [] # lista de Order
+
+        self.new_messages = []  # strings
+        self.notified_alerts = {}
 
         super().__init__(*args, **kwargs)
         self.start()
@@ -43,8 +53,49 @@ class ClientGui(threading.Thread):
         Atualiza a interface gráfica periodicamente
         com as informações enviadas pela aplicação.
         """
+        self.update_limits()
+        self.update_orders()
+        self.update_owned_stock()
+        self.main_window.after(self.update_period, self.update_gui)
+
+    def update_limits(self):
+        """Mostra um alerta pra os limites alcançados e remove-os."""
         with self.update_lock:
-            self.main_window.after(self.update_period, self.update_gui)
+            for ticker in self.notified_alerts:
+                self.insert_message(
+                    f"Limite alcançado para {ticker}. "
+                    f"Valor atual: {self.notified_alerts[ticker]}")
+
+                values = list(self.quotes_frame.treeview.item(ticker)['values'])
+                values[1] = ''
+                self.quotes_frame.treeview.item(ticker, values=values)
+            self.notified_alerts = {}
+
+    def update_orders(self):
+        """Atualiza as ordens ativas."""
+        with self.update_lock:
+            self.orders_frame.treeview.delete(
+                *self.orders_frame.treeview.get_children())
+            for order in self.active_orders:
+                self.insert_order_in_treeview(order)
+
+    def update_owned_stock(self):
+        new_tickers = []
+        with self.update_lock:
+            self.owned_stock_frame.treeview.delete(
+                *self.owned_stock_frame.treeview.get_children())
+            for ticker in self.owned_stock:
+                if ticker not in self.quotes:
+                    new_tickers.append(ticker)
+                else:  
+                    stock_value = self.owned_stock[ticker] * self.quotes[ticker]
+                    self.owned_stock_frame.treeview.insert(
+                        '', 'end', ticker,
+                        text=ticker,
+                        values=(self.owned_stock[ticker], stock_value)
+                    )
+        for ticker in new_tickers:
+            self.add_quote(ticker)
 
     def assemble_main_window(self):
         """Monta a janela principal."""
@@ -108,11 +159,12 @@ class ClientGui(threading.Thread):
         frame.title_text = self.tk.Label(frame, text="Adicionar ou remover cotação")
         frame.separator = self.ttk.Separator(frame)
         frame.entry_text = self.tk.Label(frame, text="Nome da ação")
-        frame.entry = self.tk.Entry(frame)
+        frame.entry_textvar = self.tk.StringVar()
+        frame.entry = self.tk.Entry(frame, textvariable=frame.entry_textvar)
         frame.add_btn = self.tk.Button(
-            frame, command=self.add_quote, text='Adicionar')
+            frame, command=self.add_quote_button_callback, text='Adicionar')
         frame.remove_btn = self.tk.Button(
-            frame, command=self.remove_quote, text='Remover')
+            frame, command=self.remove_quote_button_callback, text='Remover')
 
         frame.title_text.grid(row=0, column=0)
         frame.separator.grid(row=1, column=0, sticky='we')
@@ -172,8 +224,10 @@ class ClientGui(threading.Thread):
         frame.columnconfigure(0, weight=1)
 
         frame.title_text = self.tk.Label(frame, text="Ordens de compra e venda ativas")
-        frame.treeview = self.ttk.Treeview(frame, column=('price', 'amount', 'expiration'))
-        frame.create_order_frame = self.tk.Frame(frame, relief=self.tk.RIDGE, borderwidth=3)
+        frame.treeview = self.ttk.Treeview(
+            frame, column=('price', 'amount', 'type', 'expiration'))
+        frame.create_order_frame = self.tk.Frame(
+            frame, relief=self.tk.RIDGE, borderwidth=3)
 
         frame.title_text.grid(row=0, column=0)
         frame.treeview.grid(row=1, column=0, sticky='nswe')
@@ -182,10 +236,12 @@ class ClientGui(threading.Thread):
         frame.treeview.column('#0', width=100)
         frame.treeview.column('price', width=100)
         frame.treeview.column('amount', width=100)
+        frame.treeview.column('type', width=50)
         frame.treeview.column('expiration', width=150)
         frame.treeview.heading('#0', text='Nome')
         frame.treeview.heading('price', text='Preço')
         frame.treeview.heading('amount', text='Quantidade')
+        frame.treeview.heading('type', text='Tipo')
         frame.treeview.heading('expiration', text='Expiração')
 
         # Widgets do frame de criar ordens
@@ -274,20 +330,185 @@ class ClientGui(threading.Thread):
             self.popup.destroy()
             self.popup = None
 
-    def add_quote(self):
-        pass
+    def add_quote(self, ticker: str):
+        with self.update_lock:
+            if not ticker or ticker in self.quotes:
+                return
+            error_code = self.app.add_stock_to_quotes(ticker)
+            if error_code is not HomebrokerErrorCode.SUCCESS:
+                self.insert_error_message(ticker, error_code)
+                return
+            self.quotes[ticker] = None
+            self.quotes_frame.treeview.insert('', 'end', ticker, text=ticker, values=('', ''))
+        self.quotes_frame.quote_btns_frame.entry_textvar.set('')
+        self.update_quotes()
 
-    def remove_quote(self):
-        pass
+    def add_quote_button_callback(self):
+        ticker = self.quotes_frame.quote_btns_frame.entry_textvar.get()
+        self.add_quote(ticker)
+
+    def remove_quote_button_callback(self):
+        ticker = self.quotes_frame.quote_btns_frame.entry_textvar.get()
+        if ticker in self.owned_stock:
+            self.insert_message("Não pode remover cotação de ação possuída.")
+            return
+        with self.update_lock:
+            if not ticker or ticker not in self.quotes:
+                return
+            error_code = self.app.remove_stock_from_quotes(ticker)
+            if error_code is not HomebrokerErrorCode.SUCCESS:
+                self.insert_error_message(ticker, error_code)
+                return
+            self.quotes.pop(ticker)
+            self.quotes_frame.treeview.delete('')
+        self.quotes_frame.quote_btns_frame.entry_textvar.set('')
 
     def update_quotes(self):
-        pass
+        """
+        Atualiza a cotação das ações na lista de cotações.
+        Chamado quando o usuário aperta o botão.
+        """
+        with self.update_lock:
+            self.quotes = self.app.get_current_quotes()
+            for ticker in self.quotes:
+                values = list(self.quotes_frame.treeview.item(ticker)['values'])
+                values[0] = self.quotes[ticker]
+                self.quotes_frame.treeview.item(ticker, values=values)
 
     def add_alert(self):
-        pass
+        ticker = self.quotes_frame.alert_btns_frame.name_textvar.get()
+        if not ticker or ticker not in self.quotes:
+            return
+
+        limit_count = 0
+        lower = self.quotes_frame.alert_btns_frame.lower_textvar.get()
+        if not lower:
+            lower = None
+        else:
+            try:
+                lower = float(lower)
+            except ValueError:
+                return
+            else:
+                limit_count += 1
+
+        upper = self.quotes_frame.alert_btns_frame.upper_textvar.get()
+        if not upper:
+            upper = None
+        else:
+            try:
+                upper = float(upper)
+            except ValueError:
+                return
+            else:
+                limit_count += 1
+        if not limit_count:
+            return
+
+        with self.update_lock:
+            error_code = self.app.add_quote_alert(ticker, lower, upper)
+            if error_code is not HomebrokerErrorCode.SUCCESS:
+                self.insert_error_message(ticker, error_code)
+                return
+            self.alerts[ticker] = (lower, upper)
+            values = list(self.quotes_frame.treeview.item(ticker)['values'])
+            values[1] = str(self.alerts[ticker])
+            self.quotes_frame.treeview.item(ticker, values=values)
+
+        self.quotes_frame.alert_btns_frame.name_textvar.set('')
+        self.quotes_frame.alert_btns_frame.lower_textvar.set('')
+        self.quotes_frame.alert_btns_frame.upper_textvar.set('')
 
     def add_order(self):
-        pass
+        ticker = self.orders_frame.create_order_frame.name_textvar.get()
+        price = self.orders_frame.create_order_frame.price_textvar.get()
+        amount = self.orders_frame.create_order_frame.amount_textvar.get()
+        expiration = self.orders_frame.create_order_frame.expiration_textvar.get()
+        order_type = self.orders_frame.create_order_frame.type_radio_var.get()
+        # Checa se todas as caixa estão preenchidas
+        if not ticker or not price or not amount or not expiration or not order_type:
+            return
+        
+        # Checa se os valores são validos
+        try:
+            price = float(price)
+            amount = float(amount)
+            expiration = float(expiration)
+        except ValueError:
+            return
+        if expiration <= 0:
+            return
+
+        order_type = OrderType(order_type)
+        expiration = datetime.datetime.now() + datetime.timedelta(minutes=expiration)
+        with self.update_lock:
+            # Cria ordem no homebroker
+            error_code, order = self.app.create_order(
+                order_type, ticker, amount, price, expiration)
+            if error_code is not HomebrokerErrorCode.SUCCESS:
+                self.insert_error_message(ticker, error_code)
+                return
+            # Adiciona na lista de ordens
+            self.active_orders.append(order)
+            self.insert_order_in_treeview(order)
+
+        self.orders_frame.create_order_frame.name_textvar.set('')
+        self.orders_frame.create_order_frame.price_textvar.set('')
+        self.orders_frame.create_order_frame.amount_textvar.set('')
+        self.orders_frame.create_order_frame.expiration_textvar.set('')
+        self.orders_frame.create_order_frame.type_radio_var.set('')
+
+    def insert_order_in_treeview(self, order: Order):
+        self.orders_frame.treeview.insert(
+            '', 'end',
+            text=order.ticker,
+            values=(
+                str(order.price),
+                str(order.amount),
+                ('Compra' if order.type is OrderType.BUY else 'Venda'),
+                order.expiry_date.strftime(self.datetime_format)
+            )
+        )
+
+    def notify_limit(self, ticker: str, current_value: float):
+        """Notifica a GUI que um limite foi atingido."""
+        with self.update_lock:
+            self.notified_alerts[ticker] = current_value
+
+    def notify_order(self,
+                     transactions: Sequence[Transaction],
+                     active_orders: Sequence[Order],
+                     expired_orders: Sequence[str],
+                     owned_stock: Mapping[str, float]):
+        """Notifica a GUI de transações executadas e seus resultados."""
+        for transaction in transactions:
+            self.insert_message((
+                f"Transação executada: "
+                f"{'Vendeu ' if transaction.seller_name == self.app.name else 'Comprou '}"
+                f"{transaction.amount} ações de {transaction.ticker} por "
+                f"{transaction.price} cada em "
+                f"{transaction.datetime.strftime(self.datetime_format)}."
+            ))
+
+        for ticker in expired_orders:
+            self.insert_messate(f"Uma ordem de {ticker} expirou.")
+
+        with self.update_lock:
+            self.active_orders = active_orders
+            self.owned_stock = owned_stock
+
+    def insert_message(self, message: str):
+        """Insere uma mensagem nova na caixa de texto de mensagens."""
+        self.messages_frame.textbox['state'] = 'normal'
+        self.messages_frame.textbox.insert('1.0', '\n')
+        self.messages_frame.textbox.insert(
+            '1.0',
+            f"{datetime.datetime.now().strftime(self.datetime_format)} - {message}"
+        )
+        self.messages_frame.textbox['state'] = 'disable'
+
+    def insert_error_message(self, ticker: str, error_code: HomebrokerErrorCode):
+        self.insert_message(f'{ticker}: {self.error_messages[error_code]}')
 
     def close(self):
         self.main_window.destroy()

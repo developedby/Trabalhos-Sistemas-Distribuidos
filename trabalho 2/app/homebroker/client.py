@@ -6,6 +6,6 @@ class Client:
         self.uri = uri
         self.proxy = Proxy(self.uri)
         self.name = name
-        self.quotes = []  # Tickers
+        self.quotes = set()  # Tickers
         self.owned_stocks = {}  # Ticker, quantidade
         self.orders = []  # Ticker, quantidade, preço
