@@ -83,6 +83,7 @@ class Homebroker:
             self.quotes = self.market.get_quotes(self.quotes.keys())
             quotes_copy = self.quotes.copy()
 
+        alerts_to_remove = []
         for ticker in quotes_copy:
             # Se tem alerta para a ação e os valores foram atingidos
             if ticker in self.alert_limits:
@@ -95,7 +96,9 @@ class Homebroker:
                             # Chama a callback do cliente
                             self.clients[client].proxy._pyroClaimOwnership()
                             self.clients[client].proxy.notify_limit(ticker, quotes_copy[ticker])
-                            self.alert_limits[ticker].pop(client)
+                            alerts_to_remove.append((ticker, client))
+        for ticker_client in alerts_to_remove:
+            self.alert_limits[ticker_client[0]].pop(ticker_client[1])
 
     def update_orders(self):
         """Atualiza as ordens de todos os clientes do homebroker."""
@@ -163,7 +166,6 @@ class Homebroker:
         """Fica atualizando os dados do homebroker periodicamente."""
         while(True):
             time.sleep(self.update_period)
-            print('Atualizando infos')
             with self.get_market():
                 self.update_quotes()
             with self.get_market():
@@ -178,7 +180,7 @@ class Homebroker:
         if not ticker_exists:
             return HomebrokerErrorCode.UNKNOWN_TICKER
 
-        self.clients[client_name].quotes.add(ticker)
+        self.clients[client_name].quotes.append(ticker)
         self.quotes[ticker] = None
         with self.get_market():
             self.update_quotes()

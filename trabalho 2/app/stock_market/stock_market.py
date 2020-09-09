@@ -489,7 +489,7 @@ class StockMarket:
             return {}
         data = yf.download(tickers, period="1d")["Adj Close"]
         if len(tickers) == 1:
-            quotes = {tickers[0]: data.values[0] if len(data.values) > 0 else None}
+            quotes = {tickers[0]: round(float(data.values[0]), 2) if len(data.values) > 0 else None}
         else:
             print(1, data)
             quotes = {ticker: None for ticker in tickers}
