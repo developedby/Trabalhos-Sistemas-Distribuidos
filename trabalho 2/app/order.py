@@ -33,8 +33,11 @@ class Order:
         self.expiry_date = expiry_date
         self.active = (
             active if active is not None
-            else not (datetime.datetime.now() >= self.expiry_date)
+            else not self.is_expired()
         )
+
+    def is_expired(self):
+        return datetime.datetime.now() >= self.expiry_date
 
     @staticmethod
     def to_dict(order):

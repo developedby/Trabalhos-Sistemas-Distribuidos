@@ -3,7 +3,7 @@ import datetime
 import sys
 import threading
 import time
-from typing import Dict, Callable
+from typing import Dict, Callable, List, Tuple
 
 import Pyro5.api as pyro
 from Pyro5.errors import excepthook as pyro_excepthook
@@ -34,13 +34,13 @@ class Homebroker:
         pyro.register_dict_to_class('Transaction', Transaction.from_dict)
 
         self.datetime_format = "%Y-%m-%d %H:%M:%S"
-        self.clients = {}  # Mapping[str, Client]
-        self.quotes = {}  # Mapping[str, float]
+        self.clients = {}  # Dict[str, Client]
+        self.quotes = {}  # Dict[str, float]
         self.quotes_lock = threading.Lock()
         self.orders_lock = threading.Lock()
         self.clients_lock = threading.Lock()
         self.alerts_lock = threading.Lock()
-        self.alert_limits = {}  # Mapping[str, list[Tuple[str, float, float]]]
+        self.alert_limits = {}  # Dict[str, Dict[str, Tuple[float, float]]]
         self.last_updated = datetime.datetime.now()
 
         # Registra no Pyro
@@ -87,15 +87,15 @@ class Homebroker:
             # Se tem alerta para a ação e os valores foram atingidos
             if ticker in self.alert_limits:
                 with self.alerts_lock:
-                    for alert in self.alert_limits[ticker]:
+                    for client, limits in self.alert_limits[ticker].items():
                         # Se tem limite minimo e o valor da acao ta mais baixo que o limite
                         # Ou se tem maximo e o valor da acao ta maior
-                        if ((alert[1] is not None) and (quotes_copy[ticker] <= alert[1])
-                                or ((alert[2] is not None) and (quotes_copy[ticker] >= alert[2]))):
+                        if ((limits[0] is not None) and (quotes_copy[ticker] <= limits[0])
+                                or ((limits[1] is not None) and (quotes_copy[ticker] >= limits[1]))):
                             # Chama a callback do cliente
-                            self.clients[alert[0]].proxy._pyroClaimOwnership()
-                            self.clients[alert[0]].proxy.notify_limit(ticker, quotes_copy[ticker])
-                            self.alert_limits[ticker].remove(alert)
+                            self.clients[client].proxy._pyroClaimOwnership()
+                            self.clients[client].proxy.notify_limit(ticker, quotes_copy[ticker])
+                            self.alert_limits[ticker].pop(client)
 
     def update_orders(self):
         """Atualiza as ordens de todos os clientes do homebroker."""
@@ -103,7 +103,7 @@ class Homebroker:
         #print(client_names)
         with self.orders_lock:
             # Não pega o proxy pra si porque é sempre uma funcao interna, quem pega é quem chamou
-            orders_per_clients = self.market.get_orders(client_names, active_only=False)
+            orders_per_clients = self.market.get_orders(client_names, active_only=True)
             transactions_per_client = self.market.get_transactions(
                 client_names, self.last_updated.strftime(self.datetime_format))
             # Pode perder alguma transação por race condition
@@ -122,20 +122,19 @@ class Homebroker:
                         new_orders_client[order.client_name] = [order]
                     else:
                         new_orders_client[order.client_name].append(order)
-                    new_order = (order.client_name, order.ticker)
-                    new_orders_set.add(new_order)
+                    new_orders_set.add((order.client_name, order.ticker))
             
             clients_orders_set = set()
             with self.clients_lock:
                 for client in self.clients:
                     for order in self.clients[client].orders:
-                        new_order = (order.client_name, order.ticker)
-                        clients_orders_set.add(new_order)
+                        clients_orders_set.add((order.client_name, order.ticker))
             
-            expired_orders = clients_orders_set.difference(new_orders_set)
-            
-            for expired_order in expired_orders:
-                client_notifications[expired_order[0]][2].append(expired_order[1])
+            inactive_orders = clients_orders_set.difference(new_orders_set)
+            for client in self.clients:
+                for order in self.clients[client].orders:
+                    if (client, order.ticker) in inactive_orders and order.is_expired():
+                        client_notifications[client][2].append(order.ticker)
 
             # Atualiza as ordens ativas
             for client, client_orders in orders_per_clients.items():
@@ -147,13 +146,11 @@ class Homebroker:
             for transaction in transactions:
                 if transaction.seller_name != 'Market':
                     client_notifications[client][0].append(transaction)
-                if transaction.buyer_name != 'Market':
+                elif transaction.buyer_name != 'Market':
                     client_notifications[client][0].append(transaction)
-                    amount = transaction.amount
-                    if transaction.ticker in self.clients[client].owned_stocks:
-                        amount += self.clients[client].owned_stocks[transaction.ticker]
-                    self.clients[client].owned_stocks[transaction.ticker] = amount
-                    client_notifications[client][3][transaction.ticker] = amount
+            if transactions:
+                self.clients[client].owned_stocks = self.market.get_stock_owned_by_client(client)
+            client_notifications[client][3] = self.clients[client].owned_stocks
 
         # Notifica os clientes
         for client, notification in client_notifications.items():
@@ -197,7 +194,7 @@ class Homebroker:
             return HomebrokerErrorCode.UNKNOWN_TICKER
         has_interest = False
         for client in self.clients:
-            if ticker in client.quotes:
+            if ticker in self.clients[client].quotes:
                 has_interest = True
                 break
         if not has_interest:
@@ -231,7 +228,10 @@ class Homebroker:
             return HomebrokerErrorCode.UNKNOWN_TICKER
 
         with self.alerts_lock:
-            self.alert_limits[ticker].append((client_name, lower_limit, upper_limit))
+            if ticker not in self.alert_limits:
+                self.alert_limits[ticker] = {client_name: (lower_limit, upper_limit)}
+            else:
+                self.alert_limits[ticker][client_name] = (lower_limit, upper_limit)
         return HomebrokerErrorCode.SUCCESS
 
     @pyro.expose
@@ -266,3 +266,20 @@ class Homebroker:
                 self.market.add_client(client_name)
             print(f"Novo cliente: {client_name}")
         return HomebrokerErrorCode.SUCCESS
+
+    @pyro.expose
+    def get_client_status(
+        self, client_name: str) -> Tuple[Dict[str, float],
+                                         List[Order],
+                                         Dict[str, float],
+                                         Dict[str, Tuple[float, float]]]:
+        """Retorna o estado atual do cliente. Cotações, Ordens, carteira e alertas."""
+        with self.get_market():
+            quotes = self.market.get_quotes(self.clients[client_name].quotes)
+            orders = self.market.get_orders([client_name], active_only=True)[client_name]
+            owned_stock = self.market.get_stock_owned_by_client(client_name)
+        alerts = {}
+        for ticker in self.alert_limits:
+            if client_name in self.alert_limits[ticker]:
+                alerts[ticker] = self.alert_limits[ticker][client_name]
+        return quotes, orders, owned_stock, alerts
