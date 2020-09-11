@@ -2,6 +2,7 @@ from Pyro5.api import Proxy
 
 
 class Client:
+    """Representação de um cliente dentro do servidor."""
     def __init__(self, uri: str, name: str):
         self.uri = uri
         self.proxy = Proxy(self.uri)

@@ -8,9 +8,19 @@ from ..enums import HomebrokerErrorCode, OrderType
 from ..order import Order, Transaction
 
 class ClientGui(threading.Thread):
-    def __init__(self, app, update_period: int = 500, *args, **kwargs):
-        # Referencia a classe Client
+    """
+    Interface gráfica do cliente. Cuida de toda a interação com o usuário.
+
+    Como usa Tkinter que é single-threaded,
+    as noticações recebidas do servidor são armazenadas
+    e só são mostradas na GUI quando ela atualizar.
+
+    :param app: Referencia ao Client.
+    :param update_period: A cada quantos milisegundos atualiza a interface.
+    """
+    def __init__(self, app: "Client", update_period: int = 500, *args, **kwargs):
         self.app = app
+        self.update_period = update_period
 
         self.error_messages = {
             HomebrokerErrorCode.NOT_ENOUGH_STOCK: "Não tem ações suficientes para realizar a ordem de venda.",
@@ -19,31 +29,37 @@ class ClientGui(threading.Thread):
         self.datetime_format = "%Y-%m-%d %H:%M:%S"
 
         # Variaveis pra comunicar mudancas para a gui
-        self.update_period = update_period
-        self.update_lock = threading.Lock()
         self.quotes = {}  # Ticker: price
         self.owned_stock = {}  # Ticker: amount
         self.active_orders = [] # lista de Order
-
         self.new_messages = []  # strings
         self.notified_alerts = {}
+
+        self.update_lock = threading.Lock()
 
         super().__init__(*args, **kwargs)
         self.start()
 
     def run(self):
+        """Inicia a Thread da GUI."""
+        # Precisa importar tkinter aqui e não global porque não é multithread
         import tkinter as tk
         from tkinter import ttk
+        # Por isso, precisa armazenar uma referencia ao modulo
         self.tk = tk
         self.ttk = ttk
+
+        # Cria a janela principal
         self.main_window = self.tk.Tk()
         self.main_window.withdraw()
         self.main_window.title("Cliente Homebroker")
         self.main_window.protocol("WM_DELETE_WINDOW", self.close)
         self.assemble_main_window()
 
+        # Cria o popup para inserir o nome de usuário
         self.create_popup_user_name()
 
+        # Fica atualizando a GUI a cada tanto tempo
         self.main_window.after(self.update_period, self.update_gui)
 
         self.main_window.mainloop()
@@ -51,7 +67,7 @@ class ClientGui(threading.Thread):
     def update_gui(self):
         """
         Atualiza a interface gráfica periodicamente
-        com as informações enviadas pela aplicação.
+        com as informações enviadas e recebidas pela aplicação.
         """
         self.update_limits()
         self.update_orders()
@@ -59,7 +75,7 @@ class ClientGui(threading.Thread):
         self.main_window.after(self.update_period, self.update_gui)
 
     def update_limits(self):
-        """Mostra um alerta pra os limites alcançados e remove-os."""
+        """Mostra um alerta para cada limite alcançado e remove-o."""
         with self.update_lock:
             for ticker in self.notified_alerts:
                 self.insert_message(
@@ -85,13 +101,16 @@ class ClientGui(threading.Thread):
                 self.insert_order_in_treeview(order)
 
     def update_owned_stock(self):
+        """Atualiza a carteira."""
         new_tickers = []
         with self.update_lock:
             self.owned_stock_frame.treeview.delete(
                 *self.owned_stock_frame.treeview.get_children())
             for ticker in self.owned_stock:
+                # Se é uma ação nova, marca pra ser adicionada
                 if ticker not in self.quotes:
                     new_tickers.append(ticker)
+                # Se não, atualiza o valor
                 else:  
                     stock_value = self.owned_stock[ticker] * self.quotes[ticker]
                     self.owned_stock_frame.treeview.insert(
@@ -204,7 +223,7 @@ class ClientGui(threading.Thread):
         frame.add_btn.grid(row=5, column=0, columnspan=2)
 
     def assemble_owned_stock_frame(self):
-        """Monta o frame das ações possuidas."""
+        """Monta o frame das ações possuidas (carteira)."""
         frame = self.owned_stock_frame
         frame.rowconfigure(1, weight=1)
         frame.columnconfigure(0, weight=1)
@@ -321,36 +340,57 @@ class ClientGui(threading.Thread):
         self.popup.ok_button.grid(row=2, column=0)
 
     def register_user_name(self):
+        """
+        Envia o nome de usuário para o servidor e pega o estado atual do cliente.
+        
+        Callback do botão do popup de registrar nome de usuário.
+        """
         self.app.homebroker._pyroClaimOwnership()
         name = self.popup.entry_text.get()
         error_code = self.app.homebroker.add_client(self.app.uri, name)
+        # A serialização de Enum no Pyro é o seu `value` 
         error_code = HomebrokerErrorCode(error_code)
+
+        # Se o nome inserido não é permitido, fecha a aplicação
         if error_code is HomebrokerErrorCode.FORBIDDEN_NAME:
             self.popup.entry.grid_forget()
             self.popup.label_prompt['text'] = 'Nome não permitido'
             self.popup.ok_button['command'] = self.close
-        else:
-            self.app.name = name
-            self.main_window.deiconify()
-            self.popup.destroy()
-            self.popup = None
-            with self.update_lock:
-                quotes, orders, owned_stock, alerts = (
-                    self.app.homebroker.get_client_status(self.app.name))
+            return
 
-                self.quotes = quotes
-                for ticker in self.quotes:
-                    self.quotes_frame.treeview.insert(
-                        '', 'end', ticker,
-                        text=ticker,
-                        values=(self.quotes[ticker], ''))
-                self.active_orders = orders
-                self.owned_stock = owned_stock
-                for ticker in alerts:
-                    insert_limit_alert_in_treeview(ticker, alerts[ticker][0], alerts[ticker])
+        # Registra o nome escolhido na aplicação
+        self.app.name = name
+
+        # Fecha o popup e mostra a janela principal
+        self.popup.destroy()
+        self.popup = None
+        self.main_window.deiconify()
+
+        # Pega o estado inicial do cliente com o servidor e coloca na gui
+        with self.update_lock:
+            quotes, orders, owned_stock, alerts = (
+                self.app.homebroker.get_client_status(self.app.name))
+
+            self.quotes = quotes
+            for ticker in self.quotes:
+                self.quotes_frame.treeview.insert(
+                    '', 'end', ticker,
+                    text=ticker,
+                    values=(self.quotes[ticker], ''))
+            self.active_orders = orders
+            self.owned_stock = owned_stock
+            for ticker in alerts:
+                insert_limit_alert_in_treeview(ticker, alerts[ticker][0], alerts[ticker])
 
 
     def add_quote(self, ticker: str):
+        """
+        Tenta adicionar uma ação na lista de interesses de cotações.
+        Se conseguir, passa a mostrar sua cotação na GUI.
+        Se der erro, mostra uma mensagem.
+
+        Se conseguir adicionar, limpa as Entry.
+        """
         with self.update_lock:
             if not ticker or ticker in self.quotes:
                 return
@@ -361,13 +401,22 @@ class ClientGui(threading.Thread):
             self.quotes[ticker] = None
             self.quotes_frame.treeview.insert('', 'end', ticker, text=ticker, values=('', ''))
         self.quotes_frame.quote_btns_frame.entry_textvar.set('')
+        # Precisa atualizar as cotações para ter algum valor pra mostrar
         self.update_quotes()
 
     def add_quote_button_callback(self):
+        """Callback do botão de adicionar ação a lista de cotações. Chama `add_quote()`."""
         ticker = self.quotes_frame.quote_btns_frame.entry_textvar.get().upper()
         self.add_quote(ticker)
 
     def remove_quote_button_callback(self):
+        """
+        Tenta remover uma ação na lista de interesses de cotações.
+        Se conseguir, deixa de mostrar sua cotação na GUI.
+        Se der erro, mostra uma mensagem.
+
+        Se conseguir remover, limpa as Entry.
+        """
         ticker = self.quotes_frame.quote_btns_frame.entry_textvar.get().upper()
         if ticker in self.owned_stock:
             self.insert_message("Não pode remover cotação de ação possuída.")
@@ -396,10 +445,19 @@ class ClientGui(threading.Thread):
                 self.quotes_frame.treeview.item(ticker, values=values)
 
     def add_limit_alert_button_callback(self):
+        """
+        Tentar registrar um alerta de limites de ganho e perda com o servidor.
+        Se conseguir, passa a mostrar os limites na GUI.
+        Se der erro, mostra uma mensagem.
+
+        Callback do botão de adicionar alerta de limites.
+        """
+        # Pega o nome da ação e verifica se é valido
         ticker = self.quotes_frame.alert_btns_frame.name_textvar.get().upper()
         if not ticker or ticker not in self.quotes:
             return
 
+        # Pega os valores dos limites, verificando se são válidos
         limit_count = 0
         lower = self.quotes_frame.alert_btns_frame.lower_textvar.get()
         if not lower:
@@ -411,7 +469,6 @@ class ClientGui(threading.Thread):
                 return
             else:
                 limit_count += 1
-
         upper = self.quotes_frame.alert_btns_frame.upper_textvar.get()
         if not upper:
             upper = None
@@ -426,10 +483,12 @@ class ClientGui(threading.Thread):
             return
 
         with self.update_lock:
+            # Envia para o servidor
             error_code = self.app.add_quote_alert(ticker, lower, upper)
             if error_code is not HomebrokerErrorCode.SUCCESS:
                 self.insert_error_message(ticker, error_code)
                 return
+            # Passa a mostrar na GUI
             self.insert_limit_alert_in_treeview(ticker, lower, upper)
 
         self.quotes_frame.alert_btns_frame.name_textvar.set('')
@@ -437,6 +496,14 @@ class ClientGui(threading.Thread):
         self.quotes_frame.alert_btns_frame.upper_textvar.set('')
 
     def add_order(self):
+        """
+        Tenta criar uma ordem de compra e venda.
+        Se conseguir mostra na GUI.
+        Se der erro, mostra uma mensagem.
+
+        Callback do botão de criar ordem.
+        """
+        # Pega os valores das entries
         ticker = self.orders_frame.create_order_frame.name_textvar.get().upper()
         price = self.orders_frame.create_order_frame.price_textvar.get()
         amount = self.orders_frame.create_order_frame.amount_textvar.get()
@@ -469,6 +536,7 @@ class ClientGui(threading.Thread):
             self.active_orders.append(order)
             self.insert_order_in_treeview(order)
 
+        # Limpa as entries
         self.orders_frame.create_order_frame.name_textvar.set('')
         self.orders_frame.create_order_frame.price_textvar.set('')
         self.orders_frame.create_order_frame.amount_textvar.set('')
@@ -476,6 +544,7 @@ class ClientGui(threading.Thread):
         self.orders_frame.create_order_frame.type_radio_var.set('')
 
     def insert_order_in_treeview(self, order: Order):
+        """Insere uma ordem na Treeview (tabela) das ordens."""
         self.orders_frame.treeview.insert(
             '', 'end',
             text=order.ticker,
@@ -488,6 +557,7 @@ class ClientGui(threading.Thread):
         )
 
     def insert_limit_alert_in_treeview(self, ticker, lower_limit, upper_limit):
+        """Insere um alerta de limite no campo correto da Treeview (tabela) de cotações."""
         values = list(self.quotes_frame.treeview.item(ticker)['values'])
         values[1] = str((lower_limit, upper_limit))
         self.quotes_frame.treeview.item(ticker, values=values)
@@ -502,7 +572,11 @@ class ClientGui(threading.Thread):
                      active_orders: Sequence[Order],
                      expired_orders: Sequence[str],
                      owned_stock: Mapping[str, float]):
-        """Notifica a GUI de transações executadas e seus resultados."""
+        """
+        Notifica a GUI dos eventos sobre ordens (transações e ordens expiradas),
+        além de atualizar a carteira e as ordens ativas.
+        """
+        # Mostra uma mensagem para cada transação
         for transaction in transactions:
             self.insert_message((
                 f"Transação executada: "
@@ -530,6 +604,7 @@ class ClientGui(threading.Thread):
         self.messages_frame.textbox['state'] = 'disable'
 
     def insert_error_message(self, ticker: str, error_code: HomebrokerErrorCode):
+        """Insere uma mensagem de erro na caixa de texto de mensagens."""
         self.insert_message(f'{ticker}: {self.error_messages[error_code]}')
 
     def close(self):

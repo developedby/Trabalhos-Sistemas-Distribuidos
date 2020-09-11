@@ -1,5 +1,6 @@
+"""Classes auxiliares."""
 import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from .enums import OrderType
 
@@ -20,7 +21,7 @@ class Order:
                  client_name: str,
                  type_: OrderType,
                  ticker: str,
-                 amount:float,
+                 amount: float,
                  price: float,
                  expiry_date: datetime.datetime,
                  active: Optional[bool] = None,
@@ -37,10 +38,12 @@ class Order:
         )
 
     def is_expired(self):
+        """Retorna se a ordem expirou ou não."""
         return datetime.datetime.now() >= self.expiry_date
 
     @staticmethod
-    def to_dict(order):
+    def to_dict(order: 'Order') -> Dict[str, Any]:
+        """Serialização para mandar pelo Pyro."""
         global datetime_format
         return {
             '__class__': 'Order',
@@ -54,7 +57,8 @@ class Order:
         }
 
     @staticmethod
-    def from_dict(class_name, dict_):
+    def from_dict(class_name: str, dict_: Dict[str, Any]) -> 'Order':
+        """Desserialização para receber pelo Pyro."""
         global datetime_format
         return Order(
             dict_['client_name'],
@@ -80,6 +84,16 @@ class Order:
         )
 
 class Transaction:
+    """
+    Representa uma transação entre dois clientes.
+    
+    :param ticker: Nome da ação
+    :param seller_name: Nome do usuário que vendeu.
+    :param buyer_name: Nome do usuário que comprou.
+    :param amount: Quantidade que foi transacionada.
+    :param price: Preço por unidade com que a ação foi transacionada.
+    :param datetime: Data-hora em que ocorreu a transação.
+    """
     def __init__(self,
                  ticker: str,
                  seller_name: str,
@@ -96,7 +110,8 @@ class Transaction:
         self.datetime = datetime
 
     @staticmethod
-    def to_dict(transaction):
+    def to_dict(transaction: 'Transaction') -> Dict[str, Any]:
+        """Serialização para enviar pelo Pyro."""
         return {
             '__class__': 'Transaction',
             'ticker': transaction.ticker,
@@ -108,7 +123,8 @@ class Transaction:
         }
 
     @staticmethod
-    def from_dict(class_name, dict_):
+    def from_dict(class_name: str, dict_: Dict[str, Any]) -> 'Transaction':
+        """Desserialização para receber pelo Pyro."""
         global datetime_format
         return Transaction(
             dict_['ticker'],
