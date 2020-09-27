@@ -1,0 +1,46 @@
+Descrição da API
+
+Para GET e DELETE: Mandar argumentos como argumentos do request (ex: /recurso?arg=value)
+Para POST: Mandar argumentos como JSON no corpo da mensagem
+
+/login:
+    GET:
+        args:
+            client_name - Nome do cliente
+
+/status:
+    GET:
+        args:
+            client_name
+
+/order:
+    POST:
+        args:
+            client_name
+            type
+            ticker
+            amount
+            price
+            expiry_date
+            active
+        
+/limit:
+    POST:
+        args:
+            ticker
+            lower_limit
+            upper_limit
+            client_name
+
+/quote:
+    GET:
+        args:
+            client_name
+    DELETE:
+        args:
+            client_name
+            ticker
+    POST:
+        args:
+            client_name
+            ticker
