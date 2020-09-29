@@ -6,8 +6,8 @@
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
 
-#ifndef MAIN_WINDOW_H
-#define MAIN_WINDOW_H
+#ifndef UI_MAIN_WINDOW_H
+#define UI_MAIN_WINDOW_H
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QAction>
@@ -521,7 +521,7 @@ public:
         quote_add_title->setText(QApplication::translate("MainWindow", "Nome da a\303\247\303\243o", Q_NULLPTR));
         add_quote_btn->setText(QApplication::translate("MainWindow", "Adicionar", Q_NULLPTR));
         remove_quote_btn->setText(QApplication::translate("MainWindow", "Remover", Q_NULLPTR));
-        quote_alert_title->setText(QApplication::translate("MainWindow", "Adicionar ou remover cota\303\247\303\243o", Q_NULLPTR));
+        quote_alert_title->setText(QApplication::translate("MainWindow", "Adicionar ou remover alerta", Q_NULLPTR));
         alert_name_title->setText(QApplication::translate("MainWindow", "Nome da a\303\247\303\243o", Q_NULLPTR));
         alert_price_low_title->setText(QApplication::translate("MainWindow", "Pre\303\247o m\303\255nimo", Q_NULLPTR));
         alert_max_price_title->setText(QApplication::translate("MainWindow", "Pre\303\247o M\303\241ximo", Q_NULLPTR));
@@ -563,4 +563,4 @@ namespace Ui {
 
 QT_END_NAMESPACE
 
-#endif // MAIN_WINDOW_H
+#endif // UI_MAIN_WINDOW_H

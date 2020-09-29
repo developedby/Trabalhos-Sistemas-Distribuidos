@@ -216,7 +216,7 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>Adicionar ou remover cotação</string>
+              <string>Adicionar ou remover alerta</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignCenter</set>

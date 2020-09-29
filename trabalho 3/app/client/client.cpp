@@ -98,19 +98,23 @@
 //    return 0;
 // }
 
-#include "gui.h"
+// #include "gui.h"
+
+#include "MainWindow.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    QMainWindow widget;
-    Ui::MainWindow ui;
-    ui.setupUi(&widget);
-    
-    // ui.quote_table->setColumnWidth(0, 213);
-    // ui.quote_table->setColumnWidth(1, 400);
-    // ui.quote_table->setColumnWidth(2, 21);
+    MainWindow teste;
 
-    widget.show();
+    // QMainWindow widget;
+    // Ui::MainWindow ui;
+    // ui.setupUi(&widget);
+    
+    // // ui.quote_table->setColumnWidth(0, 213);
+    // // ui.quote_table->setColumnWidth(1, 400);
+    // // ui.quote_table->setColumnWidth(2, 21);
+
+    // widget.show();
     return app.exec();
 }
