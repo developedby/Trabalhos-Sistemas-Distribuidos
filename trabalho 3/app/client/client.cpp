@@ -9,12 +9,7 @@
 // #include <iostream>
 // using namespace std;
  
-// void display_json(
-//    json::value const & jvalue, 
-//    utility::string_t const & prefix)
-// {
-//    std::cout << prefix << jvalue.serialize() << endl;
-// }
+
  
 // pplx::task<http_response> make_task_request(
 //    http_client & client,
@@ -101,9 +96,32 @@
 // #include "gui.h"
 
 #include "MainWindow.h"
+#include <cpprest/json.h>
+#include "Order.h"
+#include "enums.h"
+
+#pragma comment(lib, "cpprest_2_10")
+
+void display_json(
+   web::json::value const & jvalue, 
+   utility::string_t const & prefix)
+{
+   std::cout << prefix << jvalue.serialize() << std::endl;
+}
 
 int main(int argc, char *argv[])
 {
+
+    Order order("blablabla", OrderType::SELL, "asdfgas", 10.2, 10.4, time_t(1601518296), true);
+    web::json::value test = order.toJson();
+    Order new_order = order.fromJson(test);
+
+    display_json(test, "order_json");
+
+    std::cout << "Nome: " << new_order.client_name << ", quantidade: " << new_order.amount << ", valor: " << new_order.price << ", time: " << ctime(&new_order.expiry_date) << ", tipo: " << int(new_order.type) << std::endl;
+    
+    
+
     QApplication app(argc, argv);
     MainWindow teste;
 
