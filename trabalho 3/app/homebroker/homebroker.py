@@ -399,15 +399,19 @@ class Homebroker:
             nonlocal self
             nonlocal client_name
             self.clients[client_name].status = ClientStatus.CONNECTED
+
             while self.clients[client_name].status is ClientStatus.CONNECTED:
                 msg = self.clients[client_name].notification_queue.get()
+                print('Mandando evento')
                 yield msg
             self.clients[client_name].status = ClientStatus.DISCONNECTED
 
             yield ''
 
         # Fica mandando stream das notificações enquanto status do cliente for connected
-        return flask.Response(stream(), mimetype='text/event-stream')
+        response = flask.Response(stream(), mimetype='text/event-stream')
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
 
     def get_client_status(self, client_name) -> flask.Response:
         """
@@ -531,12 +535,9 @@ def create_order() -> flask.Response:
 @flask_app.route('/login', methods=['GET'])
 def connect_client() -> flask.Response:
     global homebroker
-    request_body = flask.request.get_json()
-    # Se o tipo não era text/json é None
-    if request_body is None:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+    # Extrae o nome do cliente do request
     try:
-        client_name = request_body['client_name']
+        client_name = flask.request.args['client_name']
     # Se não tinha um dos argumentos
     except KeyError:
         return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
