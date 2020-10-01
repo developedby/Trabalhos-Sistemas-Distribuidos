@@ -30,7 +30,9 @@ class Client:
         """
         # TODO: Colocar em outra thread pra nao esperar ou trocar para put_nowait?
         self.notification_queue.put(
-            json.dumps({'ticker': ticker, 'current_quote': current_quote}, indent=2))
+            json.dumps({'event': 'limit',
+                        'ticker': ticker,
+                        'current_quote': current_quote}, indent=2))
 
     def notify_order(self,
                      transactions: Sequence[Transaction],
@@ -49,7 +51,8 @@ class Client:
         transactions = [Transaction.to_dict(t) for t in transactions]
         active_orders = [Order.to_dict(o) for o in active_orders]
         self.notification_queue.put(
-            json.dumps({'transactions': transactions,
+            json.dumps({'event': 'order',
+                        'transactions': transactions,
                         'active_orders': active_orders,
                         'expired_orders': expired_orders,
                         'owned_stock': owned_stock}, indent=2))
