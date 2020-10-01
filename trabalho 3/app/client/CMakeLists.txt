@@ -13,7 +13,7 @@ set(CMAKE_AUTOMOC ON)
 
 
 
-add_executable(client MainWindow.cpp client.cpp)
+add_executable(client MainWindow.cpp client.cpp Order.cpp)
 target_link_libraries(client PRIVATE cpprestsdk::cpprest  ${Boost_LIBRARIES}
     ${OPENSSL_LIBRARIES}
     Qt5::Widgets)
