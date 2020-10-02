@@ -4,7 +4,7 @@ import datetime
 import sys
 import threading
 import time
-from typing import Dict, Callable, List, Tuple, Optional
+from typing import Dict, Callable, List, Tuple, Optional, Any
 
 import flask
 import Pyro5.api as pyro
@@ -328,7 +328,7 @@ class Homebroker:
 
         # Pega todas as cotações desse cliente
         with self.quotes_lock:
-            client_quotes = {
+            client_quotes : Dict[str, float] = {
                 ticker: quote for ticker, quote in self.quotes.items()
                 if ticker in self.clients[client_name].quotes
             }
@@ -380,10 +380,21 @@ class Homebroker:
 
         with self.orders_lock:
             with self.get_market():
+                # Manda pra bolsa
                 error = self.market.create_order(order)
             error = MarketErrorCode(error)
+            # Se deu erro, retorna e avisa o cliente
             if error is not MarketErrorCode.SUCCESS:
-                return str(HomebrokerErrorCode[error.name]), 400
+                error = HomebrokerErrorCode[error.name]
+                if error in (HomebrokerErrorCode.EXPIRED_ORDER,):
+                    status = 400
+                elif error in (HomebrokerErrorCode.UNKNOWN_CLIENT,
+                               HomebrokerErrorCode.UNKNOWN_TICKER):
+                    status = 404
+                elif error in (HomebrokerErrorCode.NOT_ENOUGH_STOCK,):
+                    status = 403
+                return str(error), status
+
             self.clients[order.client_name].orders.append(order)
 
         return str(HomebrokerErrorCode.SUCCESS), 200
@@ -454,13 +465,16 @@ class Homebroker:
 
         # Pega as informações do estado do cliente
         with self.get_market():
-            quotes = self.market.get_quotes(self.clients[client_name].quotes)
-            orders = self.market.get_orders([client_name], active_only=True)[client_name]
-            owned_stock = self.market.get_stock_owned_by_client(client_name)
-        orders = {
+            quotes: Dict[str, float] = \
+                self.market.get_quotes(self.clients[client_name].quotes)
+            orders: List[Order] = \
+                self.market.get_orders([client_name], active_only=True)[client_name]
+            owned_stock: Dict[str, float] = \
+                self.market.get_stock_owned_by_client(client_name)
+        orders: Dict[str, Dict[str, Any]] = {
             ticker: [Order.to_dict(order) for order in order_list]
             for ticker, order_list in orders.items()}
-        alerts = {}
+        alerts: Dict[str, Tuple[float, float]] = {}
         with self.alerts_lock:
             for ticker in self.alert_limits:
                 if client_name in self.alert_limits[ticker]:
