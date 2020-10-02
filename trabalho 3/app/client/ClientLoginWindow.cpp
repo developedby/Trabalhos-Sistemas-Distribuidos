@@ -27,7 +27,7 @@ void ClientLoginWindow::_onLoginBtn()
     }
     else
     {
-        this->_ui.client_name->setText("");
+        this->_ui.client_name->clear());
         this->_ui.invalid_name_msg->setVisible(false);
         this->_ui.client_name->setVisible(true);
         this->_ui.client_name_title->setVisible(true);
