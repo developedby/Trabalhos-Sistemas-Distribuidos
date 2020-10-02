@@ -7,6 +7,7 @@
 #include "enums.h"
 #include "Order.h"
 #include <ctime>
+#include <cpprest/http_client.h>
 
 class MainWindow;
 class ClientLoginWindow;
@@ -17,9 +18,23 @@ class Client {
     std::vector<Order> _active_orders;
     MainWindow *_gui;
     ClientLoginWindow *_login_gui;
+
+    std::string _login;
+    std::string _status;
+    std::string _order;
+    std::string _limit;
+    std::string _quote;
+
+    void _loginCallback(web::http::http_response response);
+
+    friend void make_request_without_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
+                                        std::function<void(web::http::http_response response)> callback_func);
+
+    friend void make_request_with_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
+                                    std::function<void(web::http::http_response response, web::json::value const &jvalue)> callback_func);
     
 public:
-    Client();
+    Client(std::string uri);
     void createOrder(OrderType order_type,
                      std::string ticker, 
                      double amount,
@@ -36,6 +51,11 @@ public:
                      std::vector<Order> active_orders,
                      std::vector<std::string>expired_orders,
                      std::map<std::string, double> owned_stock);
+    void login(std::string client_name);
+
+
+    
+
 };
 
 #endif

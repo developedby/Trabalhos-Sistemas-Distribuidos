@@ -11,11 +11,17 @@ class ClientLoginWindow : public QMainWindow
     Client &_client;
     bool _is_warning_active;
 
+    void _clearError();
+
 private slots:
     void _onLoginBtn();
 
 public:
     ClientLoginWindow(Client &client_);
+
+    void showError();
+
+    
 
     // void show();
     // void close();
