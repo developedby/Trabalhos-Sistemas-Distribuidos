@@ -8,6 +8,19 @@
             <li>Para GET e DELETE: Mandar argumentos como argumentos do request (ex: /recurso?arg=value)</li>
             <li>Para POST: Mandar argumentos como JSON no corpo da mensagem</li>
         </ul>
+
+        <h2>Error Codes</h2>
+        <ol>
+            <li>SUCCESS</li>
+            <li>CLIENT_ALREADY_EXISTS</li>
+            <li>UNKNOWN_CLIENT</li>
+            <li>NOT_ENOUGH_STOCK</li>
+            <li>UNKNOWN_TICKER</li>
+            <li>INVALID_MESSAGE</li>
+            <li>FORBIDDEN_NAME</li>
+        </ol>
+
+
         <h2>Recursos</h2>
         <ul>
             <li>
@@ -20,6 +33,15 @@
                                 args:
                                 <ul>
                                     <li>client_name</li>
+                                </ul>
+                            </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: EventStream</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>403: FORBIDDEN_NAME</li>
+                                    <li>403: CLIENT_ALREADY_EXISTS</li>
                                 </ul>
                             </li>
                         </ul>
@@ -36,6 +58,21 @@
                                 args:
                                 <ul>
                                     <li>client_name</li>
+                                </ul>
+                            </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>
+                                        200: {
+                                            "quotes": {ticker: quote},
+                                            "orders": {ticker: order},
+                                            "owned_stock": {ticker: amount},
+                                            "alerts": {ticker: [lower_limit, upper_limit]}
+                                        }
+                                    </li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
                                 </ul>
                             </li>
                         </ul>
@@ -60,6 +97,17 @@
                                     <li>active</li>
                                 </ul>
                             </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: SUCCESS</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>400: EXPIRED_ORDER</li>
+                                    <li>403: NOT_ENOUGH_STOCK</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
+                                    <li>404: UNKNOWN_TICKER</li>
+                                </ul>
+                            </li>
                         </ul>
                     </li>
                 </ul>
@@ -79,6 +127,15 @@
                                     <li>client_name</li>
                                 </ul>
                             </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: SUCCESS</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
+                                    <li>404: UNKNOWN_TICKER</li>
+                                </ul>
+                            </li>
                         </ul>
                     </li>
                 </ul>
@@ -95,6 +152,14 @@
                                     <li>client_name</li>
                                 </ul>
                             </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: {ticker: quote}</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
+                                </ul>
+                            </li>
                         </ul>
                     </li>
                     <li>
@@ -107,6 +172,15 @@
                                     <li>ticker</li>
                                 </ul>
                             </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: SUCCESS</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
+                                    <li>404: UNKNOWN_TICKER</li>
+                                </ul>
+                            </li>
                         </ul>
                     </li>
                     <li>
@@ -117,6 +191,15 @@
                                 <ul>
                                     <li>client_name</li>
                                     <li>ticker</li>
+                                </ul>
+                            </li>
+                            <li>
+                                returns:
+                                <ul>
+                                    <li>200: SUCCESS</li>
+                                    <li>400: INVALID_MESSAGE</li>
+                                    <li>404: UNKNOWN_CLIENT</li>
+                                    <li>404: UNKNOWN_TICKER</li>
                                 </ul>
                             </li>
                         </ul>
