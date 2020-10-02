@@ -25,8 +25,12 @@ class MarketErrorCode(Enum):
 class HomebrokerErrorCode(Enum):
     """Códigos de erro que o homebroker retorna."""
     SUCCESS = auto()
-    INVALID_MESSAGE = auto()
-    FORBIDDEN_NAME = auto()
+    CLIENT_ALREADY_EXISTS = auto()
+    UNKNOWN_CLIENT = auto()
     NOT_ENOUGH_STOCK = auto()
     UNKNOWN_TICKER = auto()
-    UNKNOWN_CLIENT = auto()
+    INVALID_MESSAGE = auto()
+    FORBIDDEN_NAME = auto()
+
+    def __str__(self):
+        return str(self.value)
