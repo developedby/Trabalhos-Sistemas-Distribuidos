@@ -6,8 +6,8 @@
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
 
-#ifndef UI_MAIN_WINDOW_H
-#define UI_MAIN_WINDOW_H
+#ifndef MAIN_WINDOW_H
+#define MAIN_WINDOW_H
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QAction>
@@ -490,6 +490,7 @@ public:
 
         messages = new QPlainTextEdit(messages_group);
         messages->setObjectName(QStringLiteral("messages"));
+        messages->setReadOnly(true);
 
         gridLayout_11->addWidget(messages, 1, 0, 1, 1);
 
@@ -563,4 +564,4 @@ namespace Ui {
 
 QT_END_NAMESPACE
 
-#endif // UI_MAIN_WINDOW_H
+#endif // MAIN_WINDOW_H

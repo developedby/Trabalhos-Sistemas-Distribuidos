@@ -1,10 +1,12 @@
 #include "MainWindow.h"
 #include "gui.h"
+#include "Client.h"
 #include <iostream>
 #include <string>
 #include <ctime>
 
-MainWindow::MainWindow() : QMainWindow(), _ui(Ui::MainWindow())
+
+MainWindow::MainWindow(Client &client_) : QMainWindow(), _ui(Ui::MainWindow()), _client(client_)
 {
     this->_ui.setupUi(this);
     connect(this->_ui.add_quote_btn, SIGNAL(released()), this, SLOT(_onAddQuoteBtn()));
@@ -12,10 +14,6 @@ MainWindow::MainWindow() : QMainWindow(), _ui(Ui::MainWindow())
     connect(this->_ui.add_alert_btn, SIGNAL(released()), this, SLOT(_onAddAlertBtn()));
     connect(this->_ui.create_order_btn, SIGNAL(released()), this, SLOT(_onCreateOrderBtn()));
     connect(this->_ui.update_btn, SIGNAL(released()), this, SLOT(_onUpdateBtn()));
-    
-    
-    
-    this->show();
 }
 
 void MainWindow::_onAddQuoteBtn()
@@ -110,3 +108,13 @@ void MainWindow::_onUpdateBtn()
 {
     std::cout << "Botao clicado _onUpdateBtn" << std::endl;
 }
+
+// void MainWindow::show()
+// {
+//     this->show();
+// }
+
+// void MainWindow::close()
+// {
+//     this->close();
+// }

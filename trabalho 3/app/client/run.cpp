@@ -96,6 +96,7 @@
 // #include "gui.h"
 
 #include "MainWindow.h"
+#include "Client.h"
 #include <cpprest/json.h>
 #include "Order.h"
 #include "enums.h"
@@ -123,7 +124,8 @@ int main(int argc, char *argv[])
     
 
     QApplication app(argc, argv);
-    MainWindow teste;
+    Client client;
+   //  MainWindow teste;
 
     // QMainWindow widget;
     // Ui::MainWindow ui;
