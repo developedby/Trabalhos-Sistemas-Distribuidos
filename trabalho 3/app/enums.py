@@ -27,6 +27,7 @@ class HomebrokerErrorCode(Enum):
     SUCCESS = auto()
     CLIENT_ALREADY_EXISTS = auto()
     UNKNOWN_CLIENT = auto()
+    EXPIRED_ORDER = auto()
     NOT_ENOUGH_STOCK = auto()
     UNKNOWN_TICKER = auto()
     INVALID_MESSAGE = auto()
