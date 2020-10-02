@@ -18,34 +18,47 @@ MainWindow::MainWindow(Client &client_) : QMainWindow(), _ui(Ui::MainWindow()), 
 
 void MainWindow::_onAddQuoteBtn()
 {
-    std::string quote_name = this->_ui.quote_name->text().toUtf8().constData();
+    const std::string quote_name = this->_ui.quote_name->text().toUtf8().constData();
 
-    if (quote_name.length() <= 0)
+    if (quote_name.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;   
+        std::cout << "Valores inválidos" << std::endl;
+        return;
     }
 
     std::cout << "Botao clicado onAddQuoteBtn" << std::endl;
     std::cout << "Colocou o nome " << quote_name << std::endl;
+
+    const bool error = this->_client.addStockToQuotes(ticker);
+    if (!error)
+    {
+        this->_ui.quote_name->clear();
+    }
 }
 
 void MainWindow::_onRemoveQuoteBtn()
 {
-    std::string quote_name = this->_ui.quote_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.quote_name->text().toUtf8().constData();
 
-    if (quote_name.length() <= 0)
+    if (ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;   
+        std::cout << "Valores inválidos" << std::endl;
+        return;
     }
     
     std::cout << "Botao clicado _onRemoveQuoteBtn" << std::endl;
-    std::cout << "Colocou o nome " << quote_name << std::endl;
+    std::cout << "Colocou o nome " << ticker << std::endl;
 
+    const bool error = this->_client.removeStockFromQuotes(ticker);
+    if (!error)
+    {
+        this->_ui.quote_name->clear();
+    }
 }
 
 void MainWindow::_onAddAlertBtn()
 {
-    std::string quote_name = this->_ui.alert_quote->text().toUtf8().constData();
+    const std::string ticker = this->_ui.alert_quote->text().toUtf8().constData();
     bool ok[2];
     float stub[2];
     stub[0] = this->_ui.alert_price_low->text().toFloat(&ok[0]);
@@ -59,18 +72,27 @@ void MainWindow::_onAddAlertBtn()
         low_price = stub[0];
         high_price = stub[1];
     }
-    if (low_price < 0 || high_price < 0 || quote_name.length() <= 0)
+    if (low_price < 0 || high_price < 0 || ticker.empty())
     {
         std::cout << "Valores inválidos" << std::endl;   
     }
     
     std::cout << "Botao clicado _onAddAlertBtn" << std::endl;
-    std::cout << "Nome: " << quote_name << ", limite baixo: " << low_price << ", limite alto: " << high_price << std::endl;
+    std::cout << "Nome: " << ticker << ", limite baixo: " << low_price << ", limite alto: " << high_price << std::endl;
+
+    const bool error = this->_client.addQuoteAlert(ticker, low_price, high_price);
+    if (!error)
+    {
+        this->_ui.alert_quote->clear();
+        this->_ui.alert_price_low->clear();
+        this->_ui.alert_price_high->clear();
+    }
+
 }
 
 void MainWindow::_onCreateOrderBtn()
 {
-    std::string quote_name = this->_ui.order_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.order_name->text().toUtf8().constData();
     bool ok[3];
     float stub[3];
 
@@ -92,29 +114,31 @@ void MainWindow::_onCreateOrderBtn()
     }
     
 
-    if (amount < 0 || price < 0 || expiration_minutes < 0 || (!sell_order && !buy_order) || quote_name.length() <= 0)
+    if (amount < 0 || price < 0 || expiration_minutes < 0 || (!sell_order && !buy_order) || ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;   
+        std::cout << "Valores inválidos" << std::endl;  
+        return; 
     }
 
-    time_t timestamp = time(NULL);
-    timestamp += int(expiration_minutes * 60);
+    const OrderType order_type = buy_order ? OrderType::BUY : OrderType::SELL;
+
+    const time_t expiration_datetime = time(NULL) + int(expiration_minutes * 60);
 
     std::cout << "Botao clicado _onCreateOrderBtn" << std::endl;
     std::cout << "Nome: " << quote_name << ", quantidade: " << amount << ", valor: " << price << ", time: " << ctime(&timestamp) << ", compra: " << buy_order << ", venda: " << sell_order << std::endl;
+
+    const bool error = this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime)
+    if (!error)
+    {
+        this->_ui.order_name->clear();
+        this->_ui.order_amount->clear();
+        this->_ui.order_price->clear();
+        this->_ui.order_expiration->clear();
+    }
 }
 
 void MainWindow::_onUpdateBtn()
 {
     std::cout << "Botao clicado _onUpdateBtn" << std::endl;
+    this->_client.getCurrentQuotes();
 }
-
-// void MainWindow::show()
-// {
-//     this->show();
-// }
-
-// void MainWindow::close()
-// {
-//     this->close();
-// }
