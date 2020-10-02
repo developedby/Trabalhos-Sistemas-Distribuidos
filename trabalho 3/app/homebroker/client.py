@@ -32,7 +32,7 @@ class Client:
         self.notification_queue.put(
             json.dumps({'event': 'limit',
                         'ticker': ticker,
-                        'current_quote': current_quote}, indent=2))
+                        'current_quote': current_quote}))
 
     def notify_order(self,
                      transactions: Sequence[Transaction],
@@ -55,4 +55,4 @@ class Client:
                         'transactions': transactions,
                         'active_orders': active_orders,
                         'expired_orders': expired_orders,
-                        'owned_stock': owned_stock}, indent=2))
+                        'owned_stock': owned_stock}))

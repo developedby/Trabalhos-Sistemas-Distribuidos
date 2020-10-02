@@ -4,7 +4,7 @@ import datetime
 import sys
 import threading
 import time
-from typing import Dict, Callable, List, Tuple
+from typing import Dict, Callable, List, Tuple, Optional
 
 import flask
 import Pyro5.api as pyro
@@ -225,6 +225,30 @@ class Homebroker:
                 if notification[0] or notification[2]:
                     self.clients[client].notify_order(*notification)
 
+    @staticmethod
+    def format_sse_message(data: str,
+                           event: Optional[str] = None,
+                           id: Optional[str] = None) -> flask.Response:
+        """
+        Retorna uma resposta no formato SSE.
+
+        :param data: Mensagem que vai ser enviada.
+        :param event: Nome do evento desta mensagem.
+        :param id: Id da mensagem.
+        """
+        # TODO: Descobrir porque quebra quando põe campos além de 'data'
+        if not data:
+            raise ValueError("'data' must not be empty.")
+
+        msg = ''
+        if event:
+            msg += 'event: {}\n'.format(event)
+        if id:
+            msg += 'id: {}\n'.format(id)
+        msg += 'data: {}\n'.format(data)
+        msg += '\n'
+        return msg
+
     # Funções de interface com o cliente
     # Conectam com o app flask
     def add_stock_to_quotes(self, ticker, client_name) -> flask.Response:
@@ -240,17 +264,17 @@ class Homebroker:
 
         # Checa se os argumentos são validos
         if client_name not in self.clients:
-            return str(HomebrokerErrorCode.UNKNOWN_CLIENT.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
         with self.get_market():
             ticker_exists = self.market.check_ticker_exists(ticker)
         if not ticker_exists:
-            return str(HomebrokerErrorCode.UNKNOWN_TICKER.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_TICKER), 404
 
         self.clients[client_name].quotes.append(ticker)
         with self.quotes_lock:
             self.quotes[ticker] = None
         self.update_quotes()
-        return str(HomebrokerErrorCode.SUCCESS.value), 200
+        return str(HomebrokerErrorCode.SUCCESS), 200
 
     def remove_stock_from_quotes(self, ticker, client_name) -> flask.Response:
         """
@@ -264,14 +288,14 @@ class Homebroker:
 
         # Verifica o nome do cliente
         if client_name not in self.clients:
-            return str(HomebrokerErrorCode.UNKNOWN_CLIENT.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
 
         # Tenta remover a ação da lista de cotações do cliente
         try:
             self.clients[client_name].quotes.remove(ticker)
         # Se não tinha essa ação na lista
         except ValueError:
-            return str(HomebrokerErrorCode.UNKNOWN_TICKER.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_TICKER), 404
 
         # Verifica se algum cliente ainda tem interesse nessa ação
         has_interest = False
@@ -285,7 +309,7 @@ class Homebroker:
             with self.quotes_lock:
                 self.quotes.pop(ticker)
         
-        return str(HomebrokerErrorCode.SUCCESS.value), 200
+        return str(HomebrokerErrorCode.SUCCESS), 200
 
     def get_current_quotes(self, client_name) -> flask.Response:
         """
@@ -298,7 +322,7 @@ class Homebroker:
         print("get_current_quotes", client_name)
 
         if client_name not in self.clients:
-            return str(HomebrokerErrorCode.UNKNOWN_CLIENT.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
 
         self.update_quotes()
 
@@ -326,14 +350,14 @@ class Homebroker:
         with self.get_market():
             ticker_exists = self.market.check_ticker_exists(ticker)
         if not ticker_exists:
-            return str(HomebrokerErrorCode.UNKNOWN_TICKER.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_TICKER), 404
         if client_name not in self.clients:
-            return str(HomebrokerErrorCode.UNKNOWN_CLIENT.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
         try:
             lower_limit = int(lower_limit)
             upper_limit = int(upper_limit)
         except ValueError:
-            return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+            return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
         # Adiciona o limite
         with self.alerts_lock:
@@ -342,7 +366,7 @@ class Homebroker:
             else:
                 self.alert_limits[ticker][client_name] = (lower_limit, upper_limit)
 
-        return str(HomebrokerErrorCode.SUCCESS.value), 200
+        return str(HomebrokerErrorCode.SUCCESS), 200
 
     def create_order(self, order) -> flask.Response:
         """
@@ -359,10 +383,10 @@ class Homebroker:
                 error = self.market.create_order(order)
             error = MarketErrorCode(error)
             if error is not MarketErrorCode.SUCCESS:
-                return str(HomebrokerErrorCode[error.name].value), 400
+                return str(HomebrokerErrorCode[error.name]), 400
             self.clients[order.client_name].orders.append(order)
 
-        return str(HomebrokerErrorCode.SUCCESS.value), 200
+        return str(HomebrokerErrorCode.SUCCESS), 200
 
     def connect_client(self, client_name) -> flask.Response:
         """
@@ -377,15 +401,12 @@ class Homebroker:
         """
         # Verifica se o nome é válido
         if client_name in ('Market', ''):
-            return HomebrokerErrorCode.FORBIDDEN_NAME, 403
+            return str(HomebrokerErrorCode.FORBIDDEN_NAME), 403
 
         # Se o cliente já tem uma conexão aberta, fecha a conexão antiga
         if (client_name in self.clients
                 and self.clients[client_name].status is ClientStatus.CONNECTED):
-            self.clients[client_name].status = ClientStatus.CLOSING
-            while self.clients[client_name].status is not ClientStatus.DISCONNECTED:
-                time.sleep(0.1)
-            print(f'Cliente reconectado: {client_name}')
+            return str(HomebrokerErrorCode.CLIENT_ALREADY_EXISTS), 403
         # Caso cliente novo, cria e manda pro mercado
         else:
             with self.clients_lock:
@@ -399,18 +420,23 @@ class Homebroker:
             nonlocal self
             nonlocal client_name
             self.clients[client_name].status = ClientStatus.CONNECTED
+            yield self.format_sse_message(data="0")
 
-            while self.clients[client_name].status is ClientStatus.CONNECTED:
+            while True:
                 msg = self.clients[client_name].notification_queue.get()
+                if self.clients[client_name].status is not ClientStatus.CONNECTED:
+                    self.clients[client_name].notification_queue.put(msg)
+                    break
                 print('Mandando evento')
-                yield "data: {}\n\n".format(msg)
-            self.clients[client_name].status = ClientStatus.DISCONNECTED
+                yield self.format_sse_message(msg)
 
-            yield ''
+            self.clients[client_name].status = ClientStatus.DISCONNECTED
+            yield self.format_sse_message(data="1")
 
         # Fica mandando stream das notificações enquanto status do cliente for connected
         response = flask.Response(stream(), mimetype='text/event-stream')
         response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add("Cache-Control", "no-cache")
         return response
 
     def get_client_status(self, client_name) -> flask.Response:
@@ -424,7 +450,7 @@ class Homebroker:
         print(f'get_client_status {client_name}')
 
         if client_name not in self.clients:
-            return str(HomebrokerErrorCode.UNKNOWN_CLIENT.value), 404
+            return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
 
         # Pega as informações do estado do cliente
         with self.get_market():
@@ -458,13 +484,13 @@ def add_stock_to_quotes() -> flask.Response:
     request_body = flask.request.get_json()
     # Se o tipo não era text/json é None
     if request_body is None:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
     try:
         ticker = request_body['ticker']
         client_name = request_body['client_name']
     # Se não tinha um dos argumentos
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.add_stock_to_quotes(ticker, client_name)
 
@@ -477,7 +503,7 @@ def remove_stock_from_quotes() -> flask.Response:
         client_name = flask.request.args['client_name']
         ticker = flask.request.args['ticker']
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.remove_stock_from_quotes(ticker, client_name)
 
@@ -489,7 +515,7 @@ def get_current_quotes() -> flask.Response:
     try:
         client_name = flask.request.args['client_name']
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.get_current_quotes(client_name)
 
@@ -501,7 +527,7 @@ def add_quote_alert() -> flask.Response:
     request_body = flask.request.get_json()
     # Se o tipo não era text/json é None
     if request_body is None:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
     try:
         ticker = request_body['ticker']
         lower_limit = request_body['lower_limit']
@@ -509,7 +535,7 @@ def add_quote_alert() -> flask.Response:
         client_name = request_body['client_name']
     # Se não tinha um dos argumentos
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.add_quote_alert(ticker, lower_limit, upper_limit, client_name)
 
@@ -521,13 +547,13 @@ def create_order() -> flask.Response:
     request_body = flask.request.get_json()
     # Se o tipo não era text/json é None
     if request_body is None:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
     try:
         order = Order.from_dict('Order', request_body)
 
     # Se não tinha um dos argumentos ou argumento invalido
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.create_order(order)
 
@@ -540,7 +566,7 @@ def connect_client() -> flask.Response:
         client_name = flask.request.args['client_name']
     # Se não tinha um dos argumentos
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.connect_client(client_name)
 
@@ -552,7 +578,7 @@ def get_client_status() -> flask.Response:
     try:
         client_name = flask.request.args['client_name']
     except KeyError:
-        return str(HomebrokerErrorCode.INVALID_MESSAGE.value), 400
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
 
     return homebroker.get_client_status(client_name)
 

@@ -2,13 +2,13 @@
     <head></head>
     <body>
         <script>
-            var targetContainer = document.getElementById("target_div");
-            var eventSource = new EventSource("http://127.0.0.1:5000/")//login?client_name=a")
+            var eventSource = new EventSource("http://127.0.0.1:5000/login?client_name=a")
             eventSource.onmessage = function(e) {
-                console.log('aaaaaa')
-                targetContainer.innerHTML = e.data;
+                console.log(e)
             };
+            eventSource.onerror = function(err) {
+                console.error('event_stream error:', err)
+            }
         </script>
-        <div id="target_div">Watch this space...</div>
     </body>
 </html>
