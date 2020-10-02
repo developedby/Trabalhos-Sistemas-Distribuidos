@@ -29,7 +29,8 @@ void MainWindow::_onAddQuoteBtn()
     std::cout << "Botao clicado onAddQuoteBtn" << std::endl;
     std::cout << "Colocou o nome " << quote_name << std::endl;
 
-    const bool error = this->_client.addStockToQuotes(ticker);
+    // const bool error = this->_client.addStockToQuotes(ticker);
+    bool error = false;
     if (!error)
     {
         this->_ui.quote_name->clear();
@@ -49,7 +50,8 @@ void MainWindow::_onRemoveQuoteBtn()
     std::cout << "Botao clicado _onRemoveQuoteBtn" << std::endl;
     std::cout << "Colocou o nome " << ticker << std::endl;
 
-    const bool error = this->_client.removeStockFromQuotes(ticker);
+    // const bool error = this->_client.removeStockFromQuotes(ticker);
+    bool error = false;
     if (!error)
     {
         this->_ui.quote_name->clear();
@@ -80,7 +82,8 @@ void MainWindow::_onAddAlertBtn()
     std::cout << "Botao clicado _onAddAlertBtn" << std::endl;
     std::cout << "Nome: " << ticker << ", limite baixo: " << low_price << ", limite alto: " << high_price << std::endl;
 
-    const bool error = this->_client.addQuoteAlert(ticker, low_price, high_price);
+    // const bool error = this->_client.addQuoteAlert(ticker, low_price, high_price);
+    bool error = false;
     if (!error)
     {
         this->_ui.alert_quote->clear();
@@ -125,9 +128,10 @@ void MainWindow::_onCreateOrderBtn()
     const time_t expiration_datetime = time(NULL) + int(expiration_minutes * 60);
 
     std::cout << "Botao clicado _onCreateOrderBtn" << std::endl;
-    std::cout << "Nome: " << quote_name << ", quantidade: " << amount << ", valor: " << price << ", time: " << ctime(&timestamp) << ", compra: " << buy_order << ", venda: " << sell_order << std::endl;
+    std::cout << "Nome: " << ticker << ", quantidade: " << amount << ", valor: " << price << ", time: " << ctime(&expiration_datetime) << ", compra: " << buy_order << ", venda: " << sell_order << std::endl;
 
-    const bool error = this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime)
+    // const bool error = this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime)
+    bool error = false;
     if (!error)
     {
         this->_ui.order_name->clear();
@@ -140,5 +144,5 @@ void MainWindow::_onCreateOrderBtn()
 void MainWindow::_onUpdateBtn()
 {
     std::cout << "Botao clicado _onUpdateBtn" << std::endl;
-    this->_client.getCurrentQuotes();
+    // this->_client.getCurrentQuotes();
 }

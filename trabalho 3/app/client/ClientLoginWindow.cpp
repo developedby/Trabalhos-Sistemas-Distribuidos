@@ -16,22 +16,30 @@ ClientLoginWindow::ClientLoginWindow(Client &client_) : QMainWindow(), _ui(Ui::L
 
 void ClientLoginWindow::_onLoginBtn()
 {
-    std::string client_name = this->_ui.client_name->text().toUtf8().constData();
-    std::cout << "Digitou o nome " << client_name << std::endl;
     if (!this->_is_warning_active)
     {
-        this->_ui.invalid_name_msg->setVisible(true);
-        this->_ui.client_name->setVisible(false);
-        this->_ui.client_name_title->setVisible(false);
-        this->_is_warning_active = true;
+        std::string client_name = this->_ui.client_name->text().toUtf8().constData();
+        this->_client.login(client_name);
     }
     else
     {
-        this->_ui.client_name->clear());
-        this->_ui.invalid_name_msg->setVisible(false);
-        this->_ui.client_name->setVisible(true);
-        this->_ui.client_name_title->setVisible(true);
-        this->_is_warning_active = false;
+        this->_clearError();
     }
 }
 
+void ClientLoginWindow::showError()
+{
+    this->_ui.invalid_name_msg->setVisible(true);
+    this->_ui.client_name->setVisible(false);
+    this->_ui.client_name_title->setVisible(false);
+    this->_is_warning_active = true;
+}
+
+void ClientLoginWindow::_clearError()
+{
+    this->_ui.client_name->clear();
+    this->_ui.invalid_name_msg->setVisible(false);
+    this->_ui.client_name->setVisible(true);
+    this->_ui.client_name_title->setVisible(true);
+    this->_is_warning_active = false;
+}
