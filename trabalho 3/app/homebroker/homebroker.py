@@ -403,7 +403,7 @@ class Homebroker:
             while self.clients[client_name].status is ClientStatus.CONNECTED:
                 msg = self.clients[client_name].notification_queue.get()
                 print('Mandando evento')
-                yield msg
+                yield "data: {}\n\n".format(msg)
             self.clients[client_name].status = ClientStatus.DISCONNECTED
 
             yield ''
