@@ -19,6 +19,8 @@ class Client {
     MainWindow *_gui;
     ClientLoginWindow *_login_gui;
 
+    std::string _client_name;
+    std::string _ticker_to_remove;
     std::string _login;
     std::string _status;
     std::string _order;
@@ -26,6 +28,10 @@ class Client {
     std::string _quote;
 
     void _loginCallback(web::http::http_response response);
+    void _addStockCallback(web::http::http_response response);
+    void _deleteStockCallback(web::http::http_response response);
+    void _getStockCallback(web::http::http_response response, web::json::value const &jvalue);
+    void _createOrderCallback(web::http::http_response response);
 
     friend void make_request_without_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
                                         std::function<void(web::http::http_response response)> callback_func);

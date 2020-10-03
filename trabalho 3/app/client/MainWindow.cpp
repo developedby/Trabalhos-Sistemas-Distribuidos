@@ -18,23 +18,23 @@ MainWindow::MainWindow(Client &client_) : QMainWindow(), _ui(Ui::MainWindow()), 
 
 void MainWindow::_onAddQuoteBtn()
 {
-    const std::string quote_name = this->_ui.quote_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.quote_name->text().toUtf8().constData();
 
-    if (quote_name.empty())
+    if (ticker.empty())
     {
         std::cout << "Valores inválidos" << std::endl;
         return;
     }
 
     std::cout << "Botao clicado onAddQuoteBtn" << std::endl;
-    std::cout << "Colocou o nome " << quote_name << std::endl;
+    std::cout << "Colocou o nome " << ticker << std::endl;
 
-    // const bool error = this->_client.addStockToQuotes(ticker);
-    bool error = false;
-    if (!error)
-    {
-        this->_ui.quote_name->clear();
-    }
+    this->_client.addStockToQuotes(ticker);
+    // bool error = false;
+    // if (!error)
+    // {
+    //     this->_ui.quote_name->clear();
+    // }
 }
 
 void MainWindow::_onRemoveQuoteBtn()
@@ -51,11 +51,12 @@ void MainWindow::_onRemoveQuoteBtn()
     std::cout << "Colocou o nome " << ticker << std::endl;
 
     // const bool error = this->_client.removeStockFromQuotes(ticker);
-    bool error = false;
-    if (!error)
-    {
-        this->_ui.quote_name->clear();
-    }
+    this->_client.removeStockFromQuotes(ticker);
+    // bool error = false;
+    // if (!error)
+    // {
+    //     this->_ui.quote_name->clear();
+    // }
 }
 
 void MainWindow::_onAddAlertBtn()
@@ -130,15 +131,15 @@ void MainWindow::_onCreateOrderBtn()
     std::cout << "Botao clicado _onCreateOrderBtn" << std::endl;
     std::cout << "Nome: " << ticker << ", quantidade: " << amount << ", valor: " << price << ", time: " << ctime(&expiration_datetime) << ", compra: " << buy_order << ", venda: " << sell_order << std::endl;
 
-    // const bool error = this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime)
-    bool error = false;
-    if (!error)
-    {
-        this->_ui.order_name->clear();
-        this->_ui.order_amount->clear();
-        this->_ui.order_price->clear();
-        this->_ui.order_expiration->clear();
-    }
+    this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime);
+    // bool error = false;
+    // if (!error)
+    // {
+    //     this->_ui.order_name->clear();
+    //     this->_ui.order_amount->clear();
+    //     this->_ui.order_price->clear();
+    //     this->_ui.order_expiration->clear();
+    // }
 }
 
 void MainWindow::_onUpdateBtn()

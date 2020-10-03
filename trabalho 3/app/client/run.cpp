@@ -97,11 +97,57 @@
 #include "Client.h"
 #include <QtWidgets/QApplication>
 
+#include <cpprest/ws_client.h>
+using namespace web;
+using namespace web::websockets::client;
+
+void teste_websockets()
+{
+    websocket_client client;
+    bool conected = false;
+    client.connect(U("ws://localhost:8767")).then([&conected](){conected = true; std::cout << "massa" << std::endl;});
+    while(!conected)
+    {
+        usleep(1000000);
+    }
+    std::cout << "conecout" << std::endl;
+    websocket_outgoing_message msg;
+    std::cout << "stando msg" << std::endl;
+    msg.set_utf8_message("Alefe");
+    std::cout << "mandando msg" << std::endl;
+    conected = false;
+    client.send(msg).then([&conected](){conected = true; std::cout << "massa2" << std::endl;});
+    while(!conected)
+    {
+        usleep(1000000);
+    }
+    std::cout << "recebi resposta" << std::endl;
+    while(true)
+    {
+        client.receive().then([](websocket_incoming_message msg) 
+        {
+            std::cout << "recebi resposta" << std::endl;
+            return msg.extract_string();
+        }).then([](std::string body) 
+        {
+            std::cout << "printando resposta" << std::endl;
+            std::cout << body << std::endl;
+        });
+        std::cout << "esperando coisas" << std::endl;
+    }
+}
+
 int main(int argc, char *argv[])
 {
-
+    
+    // time_t timestamp = time(NULL);
+    // std::cout << "time int: " << timestamp << std::endl;
+    // std::string time_string = time_to_string(&timestamp);
+    // time_t timestamp2 = string_to_time(time_string);
+    // std::cout << "time int depois: " << timestamp2 << std::endl;
     QApplication app(argc, argv);
     Client client("http://localhost:5000/");
+    return app.exec();
    //  MainWindow teste;
 
     // QMainWindow widget;
@@ -113,5 +159,5 @@ int main(int argc, char *argv[])
     // // ui.quote_table->setColumnWidth(2, 21);
 
     // widget.show();
-    return app.exec();
+    
 }

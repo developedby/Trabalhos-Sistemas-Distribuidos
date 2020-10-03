@@ -2,9 +2,20 @@
 #include "enums.h"
 #include <string>
 #include <cpprest/json.h>
+#include <time.h>
 #pragma comment(lib, "cpprest_2_10")
 
-Order::Order(std::string client_name_, OrderType type_, std::string ticker_, double amount_, double price_, time_t expiry_date_, bool active_)
+std::string time_to_string(time_t *timestamp)
+{
+    char buffer [80];
+    struct tm * timeinfo;
+    timeinfo = localtime (timestamp);
+    strftime(buffer,sizeof(buffer),"%Y-%m-%d %H:%M:%S",timeinfo);
+    std::string result(buffer);
+    return result;
+}
+
+Order::Order(std::string client_name_, OrderType type_, std::string ticker_, double amount_, double price_, std::string expiry_date_, bool active_)
 {
     client_name = client_name_;
     type = type_;
@@ -23,7 +34,7 @@ web::json::value Order::toJson()
     order_json["ticker"] = web::json::value::string(this->ticker);
     order_json["amount"] = web::json::value::number(this->amount);
     order_json["price"] = web::json::value::number(this->price);
-    order_json["expiry_date"] = web::json::value::number(this->expiry_date);
+    order_json["expiry_date"] = web::json::value::string(this->expiry_date);
     order_json["active"] = web::json::value::boolean(this->_active);
 
     return order_json;
@@ -37,11 +48,11 @@ Order Order::fromJson(web::json::value &order_json)
         order_json["ticker"].as_string(), 
         order_json["amount"].as_double(), 
         order_json["price"].as_double(), 
-        time_t(order_json["expiry_date"].as_integer()), 
+        order_json["expiry_date"].as_string(), 
         order_json["active"].as_bool());
 }
 
-Transaction::Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, time_t datetime_)
+Transaction::Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, std::string datetime_)
 {
     ticker = ticker_;
     seller_name = seller_name_;
@@ -60,7 +71,7 @@ web::json::value Transaction::toJson()
     transaction_json["buyer_name"] = web::json::value::string(this->buyer_name);
     transaction_json["amount"] = web::json::value::number(this->amount);
     transaction_json["price"] = web::json::value::number(this->price);
-    transaction_json["datetime"] = web::json::value::number(this->datetime);
+    transaction_json["datetime"] = web::json::value::string(this->datetime);
 
     return transaction_json;
 }
@@ -73,5 +84,5 @@ Transaction Transaction::fromJson(web::json::value &transaction_json)
         transaction_json["buyer_name"].as_string(), 
         transaction_json["amount"].as_double(), 
         transaction_json["price"].as_double(), 
-        time_t(transaction_json["datetime"].as_integer()));
+        transaction_json["datetime"].as_string());
 }
