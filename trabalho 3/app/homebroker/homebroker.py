@@ -242,11 +242,11 @@ class Homebroker:
 
         msg = ''
         if event:
-            msg += 'event: {}\n'.format(event)
+            msg += 'event: {}\r\n'.format(event)
         if id:
-            msg += 'id: {}\n'.format(id)
-        msg += 'data: {}\n'.format(data)
-        msg += '\n'
+            msg += 'id: {}\r\n'.format(id)
+        msg += 'data: {}\r\n'.format(data)
+        msg += '\r\n'
         return msg
 
     # Funções de interface com o cliente
