@@ -11,6 +11,8 @@
 #include <cpprest/http_client.h>
 #include <cpprest/json.h>
 #include <functional>
+#include "sse.h"
+#include <thread>
 #pragma comment(lib, "cpprest_2_10")
 
 void display_json(web::json::value const & jvalue, utility::string_t const & prefix)
@@ -126,6 +128,13 @@ void Client::notifyOrder(std::vector<Transaction> transactions,
 
 }
 
+void Client::_eventsCallback(std::string result)
+{
+    std::cout << "events callback" << std::endl;
+    std::cout << result << std::endl;
+
+}
+
 void Client::_loginCallback(web::http::http_response response)
 {
     if (response.status_code() == web::http::status_codes::OK)
@@ -141,10 +150,10 @@ void Client::_loginCallback(web::http::http_response response)
 
 void Client::login(std::string client_name)
 {
-    web::http::client::http_client login(this->_login + "?client_name=" + client_name);
-    this->_client_name = client_name;
-    auto putvalue = web::json::value::object();
-    make_request_without_json_response(login, web::http::methods::GET, putvalue, std::bind(&Client::_loginCallback, this, std::placeholders::_1));
+    std::string url = this->_login + "?client_name=" + client_name;
+    this->_events_thread = new std::thread(hold_sse, url, std::bind(&Client::_eventsCallback, this, std::placeholders::_1));
+    
+    
 }
 
 void Client::_addStockCallback(web::http::http_response response)
@@ -211,8 +220,6 @@ void Client::_getStockCallback(web::http::http_response response, web::json::val
 
             std::cout << "key: " << key << ", value: " << value << std::endl;
         }
-
-
     }
     else if(response.status_code() == web::http::status_codes::NotFound)
     {

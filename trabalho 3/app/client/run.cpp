@@ -95,6 +95,7 @@
 
 
 #include "Client.h"
+#include "sse.h"
 #include <QtWidgets/QApplication>
 
 #include <cpprest/ws_client.h>
@@ -137,27 +138,34 @@ void teste_websockets()
     }
 }
 
+class teste
+{
+    public:
+    teste()
+    {
+
+    }
+    void _eventsCallback(std::string result)
+    {
+        std::cout << "events callback" << std::endl;
+        std::cout << result << std::endl;
+    }
+
+};
+
+size_t eventsCallback(char *ptr, size_t size, size_t nmemb, void *userdata)
+{
+    std::cout << "events callback" << std::endl;
+    std::cout << std::string(ptr, size * nmemb);
+
+    return size * nmemb;
+}
+
 int main(int argc, char *argv[])
 {
-    
-    // time_t timestamp = time(NULL);
-    // std::cout << "time int: " << timestamp << std::endl;
-    // std::string time_string = time_to_string(&timestamp);
-    // time_t timestamp2 = string_to_time(time_string);
-    // std::cout << "time int depois: " << timestamp2 << std::endl;
     QApplication app(argc, argv);
+
     Client client("http://localhost:5000/");
+    
     return app.exec();
-   //  MainWindow teste;
-
-    // QMainWindow widget;
-    // Ui::MainWindow ui;
-    // ui.setupUi(&widget);
-    
-    // // ui.quote_table->setColumnWidth(0, 213);
-    // // ui.quote_table->setColumnWidth(1, 400);
-    // // ui.quote_table->setColumnWidth(2, 21);
-
-    // widget.show();
-    
 }

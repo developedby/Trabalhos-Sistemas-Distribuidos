@@ -8,6 +8,7 @@
 #include "Order.h"
 #include <ctime>
 #include <cpprest/http_client.h>
+#include <thread>
 
 class MainWindow;
 class ClientLoginWindow;
@@ -27,11 +28,15 @@ class Client {
     std::string _limit;
     std::string _quote;
 
+    std::thread *_events_thread;
+    
+
     void _loginCallback(web::http::http_response response);
     void _addStockCallback(web::http::http_response response);
     void _deleteStockCallback(web::http::http_response response);
     void _getStockCallback(web::http::http_response response, web::json::value const &jvalue);
     void _createOrderCallback(web::http::http_response response);
+    void _eventsCallback(std::string result);
 
     friend void make_request_without_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
                                         std::function<void(web::http::http_response response)> callback_func);
