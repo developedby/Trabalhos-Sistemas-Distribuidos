@@ -5,6 +5,8 @@
 #include <string>
 #include <cpprest/json.h>
 
+std::string time_to_string(time_t *timestamp);
+
 class Order
 {
     bool _active;
@@ -14,9 +16,9 @@ public:
     std::string ticker;
     double amount;
     double price;
-    time_t expiry_date;
+    std::string expiry_date;
 
-    Order(std::string client_name_, OrderType type_, std::string ticker_, double amount_, double price_, time_t expiry_date_, bool active_ = true);
+    Order(std::string client_name_, OrderType type_, std::string ticker_, double amount_, double price_, std::string expiry_date_, bool active_ = true);
     web::json::value toJson();
     Order fromJson(web::json::value &order_json);
 };
@@ -29,9 +31,9 @@ public:
     std::string buyer_name;
     double amount;
     double price;
-    time_t datetime;
+    std::string datetime;
 
-    Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, time_t datetime_);
+    Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, std::string datetime_);
     web::json::value toJson();
     Transaction fromJson(web::json::value &transaction_json);
 };

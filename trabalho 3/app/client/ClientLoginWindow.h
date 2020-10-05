@@ -20,10 +20,5 @@ public:
     ClientLoginWindow(Client &client_);
 
     void showError();
-
-    
-
-    // void show();
-    // void close();
 };
 #endif
