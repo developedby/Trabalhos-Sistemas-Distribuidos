@@ -18,7 +18,7 @@ private slots:
 
 public:
     ClientLoginWindow(Client &client_);
-
+public slots:
     void showError();
 };
 #endif

@@ -52,6 +52,19 @@ Order Order::fromJson(web::json::value &order_json)
         order_json["active"].as_bool());
 }
 
+bool Order::operator==(const Order &order_to_compare)
+{
+    return (
+        this->amount == order_to_compare.amount &&
+        this->client_name == order_to_compare.client_name &&
+        this->expiry_date == order_to_compare.expiry_date &&
+        this->price == order_to_compare.price &&
+        this->ticker == order_to_compare.ticker &&
+        this->type == order_to_compare.type &&
+        this->_active == order_to_compare._active
+    );
+}
+
 Transaction::Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, std::string datetime_)
 {
     ticker = ticker_;

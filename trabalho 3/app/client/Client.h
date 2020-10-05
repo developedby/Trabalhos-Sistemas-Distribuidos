@@ -9,34 +9,48 @@
 #include <ctime>
 #include <cpprest/http_client.h>
 #include <thread>
+#include <QThread>
+#include <utility>
 
 class MainWindow;
 class ClientLoginWindow;
+class LoginEvent;
 
-class Client {
-    std::map<std::string, double> _quotes;
-    std::map<std::string, double> _owned_stock;
+
+class Client : public QObject {
+    Q_OBJECT
+    std::map<std::string, double> _quotes; //ticker->price
+    std::map<std::string, std::pair<double, double>> _owned_stock; //ticker->(amount, value)
     std::vector<Order> _active_orders;
+    std::map<std::string, std::pair<double, double>> _alerts; //ticker->(lower_limit, upper_limit)
+    LoginEvent *_events;
     MainWindow *_gui;
     ClientLoginWindow *_login_gui;
 
+    Order _last_order;
+
     std::string _client_name;
     std::string _ticker_to_remove;
-    std::string _login;
-    std::string _status;
-    std::string _order;
-    std::string _limit;
-    std::string _quote;
+    std::string _alert_ticker;
+    std::string _login_url;
+    std::string _status_url;
+    std::string _order_url;
+    std::string _limit_url;
+    std::string _quote_url;
 
-    std::thread *_events_thread;
+    // std::thread *_events_thread;
+    // QThread _events_thread;
+    // QThread *_events_thread;
     
 
     void _loginCallback(web::http::http_response response);
     void _addStockCallback(web::http::http_response response);
-    void _deleteStockCallback(web::http::http_response response);
+    void _removeStockCallback(web::http::http_response response);
     void _getStockCallback(web::http::http_response response, web::json::value const &jvalue);
     void _createOrderCallback(web::http::http_response response);
     void _eventsCallback(std::string result);
+    void _addAlertCallback(web::http::http_response response);
+    void _getStateCallback(web::http::http_response response, web::json::value const &jvalue);
 
     friend void make_request_without_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
                                         std::function<void(web::http::http_response response)> callback_func);
@@ -58,15 +72,25 @@ public:
     void removeStockFromQuotes(std::string ticker);
     void getCurrentQuotes();
     void notifyLimit(std::string ticker, double current_quote);
-    void notifyOrder(std::vector<Transaction> transactions,
-                     std::vector<Order> active_orders,
-                     std::vector<std::string>expired_orders,
-                     std::map<std::string, double> owned_stock);
+    void notifyOrder(web::json::value notification_json);
     void login(std::string client_name);
+    void getState();
+signals:
+    void showErrorSignal();
+    void closeLoginWindowSignal();
+    void showMainWindowSignal();
+};
 
+class LoginEvent : public QThread
+{
+    Q_OBJECT
+    Client &_client;
+    std::string _url;
 
-    
-
+    void run() override;
+    void _eventsCallback(std::string result);
+public:
+    LoginEvent(Client &client_, std::string url_);
 };
 
 #endif

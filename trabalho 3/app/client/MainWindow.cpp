@@ -4,6 +4,8 @@
 #include <iostream>
 #include <string>
 #include <ctime>
+#include "Order.h"
+#include "enums.h"
 
 
 MainWindow::MainWindow(Client &client_) : QMainWindow(), _ui(Ui::MainWindow()), _client(client_)
@@ -26,15 +28,7 @@ void MainWindow::_onAddQuoteBtn()
         return;
     }
 
-    std::cout << "Botao clicado onAddQuoteBtn" << std::endl;
-    std::cout << "Colocou o nome " << ticker << std::endl;
-
     this->_client.addStockToQuotes(ticker);
-    // bool error = false;
-    // if (!error)
-    // {
-    //     this->_ui.quote_name->clear();
-    // }
 }
 
 void MainWindow::_onRemoveQuoteBtn()
@@ -46,17 +40,7 @@ void MainWindow::_onRemoveQuoteBtn()
         std::cout << "Valores inválidos" << std::endl;
         return;
     }
-    
-    std::cout << "Botao clicado _onRemoveQuoteBtn" << std::endl;
-    std::cout << "Colocou o nome " << ticker << std::endl;
-
-    // const bool error = this->_client.removeStockFromQuotes(ticker);
     this->_client.removeStockFromQuotes(ticker);
-    // bool error = false;
-    // if (!error)
-    // {
-    //     this->_ui.quote_name->clear();
-    // }
 }
 
 void MainWindow::_onAddAlertBtn()
@@ -75,22 +59,14 @@ void MainWindow::_onAddAlertBtn()
         low_price = stub[0];
         high_price = stub[1];
     }
-    if (low_price < 0 || high_price < 0 || ticker.empty())
+    QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(ticker), Qt::MatchExactly);
+    if (low_price < 0 || high_price < 0 || ticker.empty() || results.size() <= 0)
     {
-        std::cout << "Valores inválidos" << std::endl;   
+        std::cout << "Valores inválidos" << std::endl;  
+        return; 
     }
     
-    std::cout << "Botao clicado _onAddAlertBtn" << std::endl;
-    std::cout << "Nome: " << ticker << ", limite baixo: " << low_price << ", limite alto: " << high_price << std::endl;
-
-    // const bool error = this->_client.addQuoteAlert(ticker, low_price, high_price);
-    bool error = false;
-    if (!error)
-    {
-        this->_ui.alert_quote->clear();
-        this->_ui.alert_price_low->clear();
-        this->_ui.alert_price_high->clear();
-    }
+    this->_client.addQuoteAlert(ticker, low_price, high_price);
 
 }
 
@@ -128,22 +104,138 @@ void MainWindow::_onCreateOrderBtn()
 
     const time_t expiration_datetime = time(NULL) + int(expiration_minutes * 60);
 
-    std::cout << "Botao clicado _onCreateOrderBtn" << std::endl;
-    std::cout << "Nome: " << ticker << ", quantidade: " << amount << ", valor: " << price << ", time: " << ctime(&expiration_datetime) << ", compra: " << buy_order << ", venda: " << sell_order << std::endl;
-
     this->_client.createOrder(order_type, ticker, amount, price, expiration_datetime);
-    // bool error = false;
-    // if (!error)
-    // {
-    //     this->_ui.order_name->clear();
-    //     this->_ui.order_amount->clear();
-    //     this->_ui.order_price->clear();
-    //     this->_ui.order_expiration->clear();
-    // }
 }
 
 void MainWindow::_onUpdateBtn()
 {
-    std::cout << "Botao clicado _onUpdateBtn" << std::endl;
-    // this->_client.getCurrentQuotes();
+    this->_client.getCurrentQuotes();
+}
+
+void MainWindow::updateQuotes(std::map<std::string, double> quotes)
+{
+    for(auto &quote:quotes)
+    {
+        QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(quote.first), Qt::MatchExactly);
+        int row = -1;
+        if (results.size() <= 0)
+        {
+            row = this->_ui.quote_table->rowCount();
+            this->_ui.quote_table->insertRow(row);
+            this->_ui.quote_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(quote.first)));
+            this->_ui.quote_table->setItem(row, 1, new QTableWidgetItem(QString::number(quote.second)));
+            this->_ui.quote_table->setItem(row, 2, new QTableWidgetItem(""));
+        }
+        else
+        {
+            row = this->_ui.quote_table->row(results[0]);
+            QTableWidgetItem *item = this->_ui.quote_table->item(row, 1);
+            item->setText(QString::number(quote.second));
+        }
+    }
+    this->_ui.quote_table->viewport()->update();
+}
+
+void MainWindow::removeQuotes(std::string ticker)
+{
+    QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(ticker), Qt::MatchExactly);
+    if (results.size() > 0)
+    {
+        int row = this->_ui.quote_table->row(results[0]);
+        this->_ui.quote_table->removeRow(row);
+    }
+    this->_ui.quote_table->viewport()->update();
+}
+
+void MainWindow::clearQuoteAction()
+{
+    this->_ui.quote_name->setText("");
+}
+
+void MainWindow::updateAlerts(std::map<std::string, std::pair<double, double>> alerts)
+{
+    for(auto &alert:alerts)
+    {
+        QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(alert.first), Qt::MatchExactly);
+        if (results.size() > 0)
+        {
+            int row = this->_ui.quote_table->row(results[0]);
+            QTableWidgetItem *item = this->_ui.quote_table->item(row, 2);
+            QString alert_string = "(" + QString::number(alert.second.first) + ", " + QString::number(alert.second.second) + ")";
+            item->setText(alert_string);
+            this->_ui.quote_table->viewport()->update();
+        }
+    }
+}
+
+void MainWindow::clearAlertAction()
+{
+    this->_ui.alert_quote->clear();
+    this->_ui.alert_price_low->clear();
+    this->_ui.alert_price_high->clear();
+}
+
+void MainWindow::removeAlert(std::string ticker)
+{
+    QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(ticker), Qt::MatchExactly);
+    if (results.size() > 0)
+    {
+        int row = this->_ui.quote_table->row(results[0]);
+        QTableWidgetItem *item = this->_ui.quote_table->item(row, 2);
+        item->setText("");
+        this->_ui.quote_table->viewport()->update();
+    }
+}
+
+void MainWindow::addMessage(std::string msg)
+{
+    time_t timestamp = time(NULL);
+    std::string timestamp_string = time_to_string(&timestamp);
+    QString final_string = QString::fromStdString(timestamp_string) + ": " + QString::fromStdString(msg) + '\n';
+    this->_ui.messages->setReadOnly(false);
+    this->_ui.messages->insertPlainText(final_string);
+}
+
+void MainWindow::clearOrderAction()
+{
+    this->_ui.order_name->clear();
+    this->_ui.order_amount->clear();
+    this->_ui.order_price->clear();
+    this->_ui.order_expiration->clear();
+}
+
+void MainWindow::updateOrders(std::vector<Order> orders)
+{
+    while(this->_ui.order_table->rowCount())
+    {
+        this->_ui.order_table->removeRow(0);
+    }
+
+    for (auto order:orders)
+    {
+        int row = this->_ui.order_table->rowCount();
+        this->_ui.order_table->insertRow(row);
+        this->_ui.order_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(order.ticker)));
+        this->_ui.order_table->setItem(row, 1, new QTableWidgetItem(QString::number(order.price)));
+        this->_ui.order_table->setItem(row, 2, new QTableWidgetItem(QString::number(order.amount)));
+        this->_ui.order_table->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(enum_to_string_portuguese(order.type))));
+        this->_ui.order_table->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(order.expiry_date)));
+    }
+}
+
+void MainWindow::updateOwnQuotes(std::map<std::string, std::pair<double, double>> own_stocks)
+{
+    while(this->_ui.own_stock_table->rowCount())
+    {
+        this->_ui.own_stock_table->removeRow(0);
+    }
+
+    for (auto own_stock:own_stocks)
+    {
+        int row = this->_ui.own_stock_table->rowCount();
+        this->_ui.own_stock_table->insertRow(row);
+        this->_ui.own_stock_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(own_stock.first)));
+        this->_ui.own_stock_table->setItem(row, 1, new QTableWidgetItem(QString::number(own_stock.second.first)));
+        this->_ui.own_stock_table->setItem(row, 2, new QTableWidgetItem(QString::number(own_stock.second.second)));
+    }
 }

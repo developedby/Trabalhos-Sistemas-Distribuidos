@@ -13,6 +13,8 @@
 #include <functional>
 #include "sse.h"
 #include <thread>
+#include <QThread>
+#include <algorithm>
 #pragma comment(lib, "cpprest_2_10")
 
 void display_json(web::json::value const & jvalue, utility::string_t const & prefix)
@@ -44,12 +46,10 @@ void make_request_with_json_response(web::http::client::http_client & client, we
         {
             try
             {
-                std::cout << "Olhando o json, resposta é "<< std::endl;
                 callback_func(function_response, previousTask.get());
             }
             catch (web::http::http_exception const & e)
             {
-                std::cout << "Erro Olhando o json"<< std::endl;
                 std::cout << e.what() << std::endl;
             }
         })
@@ -66,92 +66,120 @@ void make_request_without_json_response(web::http::client::http_client & client,
         })
         .wait();
 }
- 
-// void make_request(web::http::client::http_client & client, web::http::method mtd, web::json::value const & jvalue, void *callbackfunction())
-// {
-//     make_task_request(client, mtd, jvalue)
-//         .then([](web::http::http_response response)
-//         {
-//             if (response.status_code() == web::http::status_codes::OK)
-//             {
-//                 std::cout << "resultado " << response.status_code() << std::endl;
-//                 return response.extract_json();
-//             }
-//             std::cout << "resultado ruim" << response.status_code() << std::endl;
-//             return pplx::task_from_result(web::json::value());
-//         })
-//         .then([](pplx::task<web::json::value> previousTask)
-//         {
-//             std::cout << "Olhando as coisas"<< std::endl;
-//             try
-//             {
-//                 std::cout << "Olhando o json"<< std::endl;
-//                 display_json(previousTask.get(), "R: ");
-//             }
-//             catch (web::http::http_exception const & e)
-//             {
-//                 std::cout << "Erro Olhando o json"<< std::endl;
-//                 std::cout << e.what() << std::endl;
-//             }
-//         })
-//         .wait();
-// }
 
-Client::Client(std::string uri) : _login(uri + "login"), _status(uri + "status"),
-                                  _order(uri + "order"), _limit(uri + "limit"),
-                                  _quote(uri + "quote")
+LoginEvent::LoginEvent(Client &client_, std::string url_) : _client(client_), _url(url_)
+{
+
+}
+
+void LoginEvent::_eventsCallback(std::string result)
+{
+    std::cout << "events callback" << std::endl;
+    std::error_code json_error;
+    // std::size_t found = result.find("{");
+    // std::size_t found2 = result.find("}");
+    // if ((found != std::string::npos) && (found != std::string::npos))
+    // {
+    std::string header("data: ");
+    std::size_t found = result.find(header);
+    if (found != std::string::npos)
+    {
+        result = result.substr(found + header.size());
+    }
+    std::cout << result << std::endl;
+    web::json::value ret = web::json::value::parse(result, json_error);
+    try
+    {
+        //Eventos de limit etc
+        auto object = ret.as_object();
+        for (auto object_iter = object.cbegin(); object_iter != object.cend(); ++object_iter)
+        {
+            const std::string &key = object_iter->first;
+            auto value = object_iter->second;
+            std::cout << "key: " << key << ", value: " << value << std::endl;
+            
+        }
+        if (object["event"].as_string() == "limit")
+        {
+            this->_client.notifyLimit(object["ticker"].as_string(), object["current_quote"].as_double());
+        }
+        else if (object["event"].as_string() == "order")
+        {
+            std::cout << "antes" << std::endl;
+            this->_client.notifyOrder(ret);
+        }
+    }
+    catch(const web::json::json_exception& e)
+    {
+        try
+        {
+            auto object = ret.as_integer();
+            if (object == 0)
+            {
+                //Login deu certo
+                this->_client.showMainWindowSignal();
+                this->_client.closeLoginWindowSignal();
+                this->_client.getState();
+            }
+            else
+            {
+                //Erro no login
+                this->_client.showErrorSignal();
+            }
+            
+        }
+        catch(const std::exception& e)
+        {
+            std::cout << "Nao sei o que eh isso" << std::endl;
+            
+        }
+        
+    } 
+}
+
+void LoginEvent::run() 
+{
+    hold_sse(this->_url, std::bind(&LoginEvent::_eventsCallback, this, std::placeholders::_1));
+}
+
+
+
+
+
+Client::Client(std::string uri) : _login_url(uri + "login"), _status_url(uri + "status"),
+                                  _order_url(uri + "order"), _limit_url(uri + "limit"),
+                                  _quote_url(uri + "quote"), _last_order()
 {
     _gui = new MainWindow(*this);
     _login_gui = new ClientLoginWindow(*this);
     _login_gui->show();
     _client_name = "";
     _ticker_to_remove = "";
-}
-
-void Client::addQuoteAlert(std::string ticker,
-                           double lower_limit,
-                           double upper_limit)
-{
-    
-}
-
-void Client::notifyLimit(std::string ticker, double current_quote)
-{
-
-}
-
-void Client::notifyOrder(std::vector<Transaction> transactions,
-                         std::vector<Order> active_orders,
-                         std::vector<std::string>expired_orders,
-                         std::map<std::string, double> owned_stock)
-{
-
-}
-
-void Client::_eventsCallback(std::string result)
-{
-    std::cout << "events callback" << std::endl;
-    std::cout << result << std::endl;
-
+    connect(this, SIGNAL(showErrorSignal()), this->_login_gui, SLOT(showError()));
+    connect(this, SIGNAL(closeLoginWindowSignal()), this->_login_gui, SLOT(close()));
+    connect(this, SIGNAL(showMainWindowSignal()), this->_gui, SLOT(show()));
 }
 
 void Client::_loginCallback(web::http::http_response response)
 {
-    if (response.status_code() == web::http::status_codes::OK)
-    {
-        this->_login_gui->close();
-        this->_gui->show();
-    }
-    else if(response.status_code() == web::http::status_codes::Forbidden)
-    {
-        this->_login_gui->showError();
-    }
+    // if (response.status_code() == web::http::status_codes::OK)
+    // {
+    //     this->_client.showMainWindow();
+    // }
+    // else if(response.status_code() == web::http::status_codes::Forbidden)
+    // {
+    //     this->_clientlogin_gui->showError();
+    // }
 }
 
 void Client::login(std::string client_name)
 {
-    std::string url = this->_login + "?client_name=" + client_name;
-    this->_events_thread = new std::thread(hold_sse, url, std::bind(&Client::_eventsCallback, this, std::placeholders::_1));
+    std::string url = this->_login_url + "?client_name=" + client_name;
+    this->_client_name = client_name;
+    this->_events = new LoginEvent(*this, url);
+
+    // this->_events_thread = QThread::create(hold_sse, url, std::bind(&Client::_eventsCallback, this, std::placeholders::_1));
+    this->_events->start();
     
     
 }
@@ -160,78 +188,68 @@ void Client::_addStockCallback(web::http::http_response response)
 {
     if (response.status_code() == web::http::status_codes::OK)
     {
-        //TODO: Colocar na GUI
-        std::cout << "Conseguiu adicionar stock" << std::endl;
         this->getCurrentQuotes();
     }
     else if(response.status_code() == web::http::status_codes::NotFound)
     {
-        //TODO: Colocar mensagem na gui
         std::cout << "Não conseguiu adicionar stock" << std::endl;
-        // this->_login_gui->showError();
     }
 }
 
 void Client::addStockToQuotes(std::string ticker)
 {
-    web::http::client::http_client add_quote(this->_quote);
+    web::http::client::http_client add_quote(this->_quote_url);
     auto add_stock_json = web::json::value::object();
     add_stock_json["client_name"] = web::json::value::string(this->_client_name);
     add_stock_json["ticker"] = web::json::value::string(ticker);
     make_request_without_json_response(add_quote, web::http::methods::POST, add_stock_json, std::bind(&Client::_addStockCallback, this, std::placeholders::_1));
 }
 
-void Client::_deleteStockCallback(web::http::http_response response)
+void Client::_removeStockCallback(web::http::http_response response)
 {
     if (response.status_code() == web::http::status_codes::OK)
     {
-        //TODO: Colocar na GUI
-        std::cout << "Conseguiu remover stock" << std::endl;
-        this->_quotes.erase(this->_ticker_to_remove);
-        this->_ticker_to_remove = "";
+        this->_gui->removeQuotes(this->_ticker_to_remove);
+        this->getCurrentQuotes();
     }
     else if(response.status_code() == web::http::status_codes::NotFound)
     {
-        //TODO: Colocar mensagem na gui
         std::cout << "Não conseguiu remover stock" << std::endl;
-        // this->_login_gui->showError();
     }
 }
 
 void Client::removeStockFromQuotes(std::string ticker)
 {
     this->_ticker_to_remove = ticker;
-    web::http::client::http_client remove_quote(this->_quote + "?client_name=" + this->_client_name + "&ticker=" + ticker);
+    web::http::client::http_client remove_quote(this->_quote_url + "?client_name=" + this->_client_name + "&ticker=" + ticker);
     auto putvalue = web::json::value::object();
-    make_request_without_json_response(remove_quote, web::http::methods::DEL, putvalue, std::bind(&Client::_deleteStockCallback, this, std::placeholders::_1));
+    make_request_without_json_response(remove_quote, web::http::methods::DEL, putvalue, std::bind(&Client::_removeStockCallback, this, std::placeholders::_1));
 }
 
 void Client::_getStockCallback(web::http::http_response response, web::json::value const &jvalue)
 {
     if (response.status_code() == web::http::status_codes::OK)
     {
-        //TODO: Colocar na GUI
-        display_json(jvalue, "Conseguiu pegar stock: ");
+        this->_gui->clearQuoteAction();
+        this->_quotes.clear();
         for (auto object = jvalue.as_object().cbegin(); object != jvalue.as_object().cend(); ++object)
         {
             const std::string &key = object->first;
             double value = object->second.as_double();
             this->_quotes[key] = value;
-
-            std::cout << "key: " << key << ", value: " << value << std::endl;
         }
+        
+        this->_gui->updateQuotes(this->_quotes);
     }
     else if(response.status_code() == web::http::status_codes::NotFound)
     {
-        //TODO: Colocar mensagem na gui
         std::cout << "Não conseguiu pegar stock" << std::endl;
-        // this->_login_gui->showError();
     }
 }
 
 void Client::getCurrentQuotes()
 {
-    web::http::client::http_client get_quote(this->_quote + "?client_name=" + this->_client_name);
+    web::http::client::http_client get_quote(this->_quote_url + "?client_name=" + this->_client_name);
     auto putvalue = web::json::value::object();
     make_request_with_json_response(get_quote, web::http::methods::GET, putvalue, std::bind(&Client::_getStockCallback, this, std::placeholders::_1, std::placeholders::_2));
 }
@@ -240,27 +258,29 @@ void Client::_createOrderCallback(web::http::http_response response)
 {
     if (response.status_code() == web::http::status_codes::OK)
     {
-        //TODO: Colocar na GUI
         std::cout << "Conseguiu criar a ordem" << std::endl;
+        this->_gui->clearOrderAction();
+        this->_gui->updateOrders(this->_active_orders);
     }
-    else if(response.status_code() == web::http::status_codes::BadRequest)
+    else
     {
-        //TODO: Colocar mensagem na gui
-        std::cout << "Não conseguiu criar a ordem pq expirou" << std::endl;
-        // this->_login_gui->showError();
+        std::vector<Order>::iterator iter = std::find(this->_active_orders.begin(), this->_active_orders.end(), this->_last_order);
+        this->_active_orders.erase(iter);
+        if(response.status_code() == web::http::status_codes::BadRequest)
+        {
+            std::cout << "Não conseguiu criar a ordem pq expirou" << std::endl;
+        }
+        else if(response.status_code() == web::http::status_codes::Forbidden)
+        {
+            std::cout << "Não conseguiu criar a ordem pq não tem o sufuciente" << std::endl;
+        }
+        else if(response.status_code() == web::http::status_codes::NotFound)
+        {
+            std::cout << "Não conseguiu criar a ordem pq não achou parametros" << std::endl;
+        }
     }
-    else if(response.status_code() == web::http::status_codes::Forbidden)
-    {
-        //TODO: Colocar mensagem na gui
-        std::cout << "Não conseguiu criar a ordem pq não tem o sufuciente" << std::endl;
-        // this->_login_gui->showError();
-    }
-    else if(response.status_code() == web::http::status_codes::NotFound)
-    {
-        //TODO: Colocar mensagem na gui
-        std::cout << "Não conseguiu criar a ordem pq não achou parametros" << std::endl;
-        // this->_login_gui->showError();
-    }
+    
+    
 }
 
 void Client::createOrder(OrderType order_type,
@@ -270,8 +290,162 @@ void Client::createOrder(OrderType order_type,
                         time_t expiration_datetime)
 {
     std::string expiration_datetime_string = time_to_string(&expiration_datetime);
-    web::http::client::http_client create_order(this->_order);
+    web::http::client::http_client create_order(this->_order_url);
     Order order_obj(this->_client_name, order_type, ticker, amount, price, expiration_datetime_string);
+    this->_active_orders.push_back(order_obj);
+    this->_last_order = order_obj;
     web::json::value order_json = order_obj.toJson();
     make_request_without_json_response(create_order, web::http::methods::POST, order_json, std::bind(&Client::_createOrderCallback, this, std::placeholders::_1));
+}
+
+void Client::_addAlertCallback(web::http::http_response response)
+{
+    if (response.status_code() == web::http::status_codes::OK)
+    {
+        this->_alert_ticker = "";
+        this->_gui->clearAlertAction();
+        this->_gui->updateAlerts(this->_alerts);
+    }
+    else
+    {
+        this->_alerts.erase(this->_alert_ticker);
+        if(response.status_code() == web::http::status_codes::BadRequest)
+        {
+            std::cout << "Não conseguiu criar alerta pq o json está errado" << std::endl;
+        }
+        else if(response.status_code() == web::http::status_codes::NotFound)
+        {
+            std::cout << "Não conseguiu criar alerta pq não tem ação" << std::endl;
+        }
+    }
+    
+}
+
+void Client::addQuoteAlert(std::string ticker,
+                           double lower_limit,
+                           double upper_limit)
+{
+    web::json::value alert_json = web::json::value::object();
+    alert_json["ticker"] = web::json::value::string(ticker);
+    alert_json["lower_limit"] = web::json::value::number(lower_limit);
+    alert_json["upper_limit"] = web::json::value::number(upper_limit);
+    alert_json["client_name"] = web::json::value::string(this->_client_name);
+
+    this->_alerts[ticker] = std::make_pair(lower_limit, upper_limit);
+    this->_alert_ticker = ticker;
+
+    web::http::client::http_client create_alert(this->_limit_url);
+    make_request_without_json_response(create_alert, web::http::methods::POST, alert_json, std::bind(&Client::_addAlertCallback, this, std::placeholders::_1));
+}
+
+void Client::notifyLimit(std::string ticker, double current_quote)
+{
+    std::string message = "Limite alcançado para \"" + ticker + "\". Valor atual: " + std::to_string(current_quote);
+    this->_alerts.erase(ticker);
+    this->_gui->removeAlert(ticker);
+    this->_gui->addMessage(message);
+}
+
+void Client::notifyOrder(web::json::value notification_json)
+{
+    //std::cout << "Começo" << std::endl;
+    this->getCurrentQuotes();
+    
+    auto active_orders = notification_json["active_orders"].as_array();
+    auto expired_orders = notification_json["expired_orders"].as_array();
+    auto owned_stock = notification_json["owned_stock"].as_object();
+    auto transactions = notification_json["transactions"].as_array();
+
+    //std::cout << "Fazendo as ordens ativas" << std::endl;
+    this->_active_orders.clear();
+    for (auto order_iter:active_orders)
+    {
+        Order order = Order::fromJson(order_iter);
+        this->_active_orders.push_back(order);
+    }
+    this->_gui->updateOrders(this->_active_orders);
+
+    //std::cout << "Fazendo as ordens que expiraram" << std::endl;
+    for (auto order_iter:expired_orders)
+    {
+        std::string msg = "Uma ordem de \"" + order_iter.as_string() + "\" expirou.";
+        this->_gui->addMessage(msg);
+    }
+
+    //std::cout << "Fazendo a carteira" << std::endl;
+    this->_owned_stock.clear();
+    for (auto stock_iter:owned_stock)
+    {
+        double value = this->_quotes[stock_iter.first] * stock_iter.second.as_double();
+        this->_owned_stock[stock_iter.first] = std::make_pair(stock_iter.second.as_double(), value);
+    }
+    this->_gui->updateOwnQuotes(this->_owned_stock);
+
+    //std::cout << "Fazendo as transacoes" << std::endl;
+    for (auto transaction_iter:transactions)
+    {
+        Transaction transaction = Transaction::fromJson(transaction_iter);
+        std::string oper_name = ((transaction.seller_name == this->_client_name) ? "Vendeu " : "Comprou ");
+        std::string msg =   "Transação executada: " + oper_name + 
+                            std::to_string(transaction.amount) + " ações de \"" + transaction.ticker + "\" por " + 
+                            std::to_string(transaction.price) + " cada em " +
+                            transaction.datetime;
+        this->_gui->addMessage(msg);
+    }
+    //std::cout << "FIM" << std::endl;
+}
+
+void Client::_getStateCallback(web::http::http_response response, web::json::value const &jvalue_)
+{
+    if (response.status_code() == web::http::status_codes::OK)
+    {
+        web::json::value jvalue= jvalue_;
+        display_json(jvalue, "Resultado do status: ");
+        const auto quotes_json = jvalue["quotes"].as_object();
+        const auto orders_json = jvalue["orders"].as_array();
+        const auto owned_stock_json = jvalue["owned_stock"].as_object();
+        const auto alerts_json = jvalue["alerts"].as_object();
+
+        for (auto quote_iter:quotes_json)
+        {
+            this->_quotes[quote_iter.first] = quote_iter.second.as_double();
+        }
+        this->_gui->updateQuotes(this->_quotes);
+
+        for (auto order_iter:orders_json)
+        {
+            Order order = Order::fromJson(order_iter);
+            this->_active_orders.push_back(order);
+        }
+        this->_gui->updateOrders(this->_active_orders);
+
+        for (auto stock_iter:owned_stock_json)
+        {
+            double value = this->_quotes[stock_iter.first] * stock_iter.second.as_double();
+            this->_owned_stock[stock_iter.first] = std::make_pair(stock_iter.second.as_double(), value);
+        }
+        this->_gui->updateOwnQuotes(this->_owned_stock);
+
+        for (auto alert_iter:alerts_json)
+        {
+            auto alert_values = alert_iter.second.as_array();
+            this->_alerts[alert_iter.first] = std::make_pair(alert_values[0].as_double(), alert_values[1].as_double());
+        }
+        this->_gui->updateAlerts(this->_alerts);
+    }
+    else if(response.status_code() == web::http::status_codes::BadRequest)
+    {
+        std::cout << "Pacote inválido" << std::endl;
+    }
+    else if (response.status_code() == web::http::status_codes::NotFound)
+    {
+        std::cout << "Cliente desconhecido" << std::endl;
+    }
+}
+
+void Client::getState()
+{
+    web::http::client::http_client get_status(this->_status_url + "?client_name=" + this->_client_name);
+    web::json::value putvalue;
+    make_request_with_json_response(get_status, web::http::methods::GET, putvalue, std::bind(&Client::_getStateCallback, this, std::placeholders::_1, std::placeholders::_2));
 }

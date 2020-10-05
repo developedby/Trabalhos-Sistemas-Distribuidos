@@ -3,6 +3,7 @@
 
 #include "gui.h"
 #include "Client.h"
+#include "Order.h"
 
 class MainWindow : public QMainWindow
 {
@@ -19,8 +20,19 @@ private slots:
     
 public:
     MainWindow(Client &client_);
-    // void show();
-    // void close();
+    void updateQuotes(std::map<std::string, double> quotes);
+    void clearQuoteAction();
+    void updateAlerts(std::map<std::string, std::pair<double, double>> alerts);
+    void clearAlertAction();
+    void removeQuotes(std::string ticker);
+    void removeAlert(std::string ticker);
+    void addMessage(std::string msg);
+    void clearOrderAction();
+    void updateOrders(std::vector<Order> orders);
+    void updateOwnQuotes(std::map<std::string, std::pair<double, double>> own_stocks);
+
+signals:
+    void showMainWindowSignal();
 
 };
 

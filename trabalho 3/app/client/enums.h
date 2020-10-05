@@ -59,5 +59,18 @@ static OrderType string_to_enum(std::string type_string)
     return OrderType::BUY;
 }
 
+static std::string enum_to_string_portuguese(OrderType type)
+{
+    if (type == OrderType::BUY)
+    {
+        return "Ordem de compra";
+    }
+    else if (type == OrderType::SELL)
+    {
+        return "Ordem de venda";
+    }
+    
+    return "";
+}
 
 #endif

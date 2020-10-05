@@ -48,7 +48,7 @@ class Order:
         return {
             '__class__': 'Order',
             'client_name': order.client_name,
-            'type': order.type,
+            'type': order.type.value,
             'ticker': order.ticker,
             'amount': order.amount,
             'price': order.price,

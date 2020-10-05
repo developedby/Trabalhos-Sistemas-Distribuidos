@@ -167,6 +167,9 @@ class Homebroker:
                 orders_lock
                     market_lock
                 market_lock
+                quotes_lock
+                    market_lock
+                
         """
         # Pega uma copia dos clientes, pra evitar problemas de concorrencia
         with self.clients_lock:
@@ -217,6 +220,14 @@ class Homebroker:
                     with self.get_market():
                         self.clients[client_name].owned_stock = \
                             self.market.get_stock_owned_by_client(client_name)
+                        
+                    for owned_quote in self.clients[client_name].owned_stock:
+                        if (not owned_quote in self.clients[client_name].quotes):
+                            self.clients[client_name].quotes.append(owned_quote)
+                            with self.quotes_lock:
+                                with self.get_market():
+                                    self.quotes[owned_quote] = self.market.get_quotes(owned_quote)
+                            
                 notifications_per_client[client_name][3] = self.clients[client_name].owned_stock
 
             # Envia as notificações aos clientes
@@ -260,7 +271,7 @@ class Homebroker:
             quotes_lock
             update_quotes()
         """
-        print("add_stock_to_quotes", ticker, client_name)
+        print("add_stock_to_quotes->(", ticker, ", ",client_name, ")")
 
         # Checa se os argumentos são validos
         if client_name not in self.clients:
@@ -424,9 +435,20 @@ class Homebroker:
                 self.clients[client_name] = Client(client_name)
             with self.get_market():
                 self.market.add_client(client_name)
-            print(f"Novo cliente: {client_name}")
+                
+        with self.get_market():
+            self.clients[client_name].orders = self.market.get_orders([client_name], active_only=True)[client_name]
+            self.clients[client_name].owned_stock = self.market.get_stock_owned_by_client(client_name)
+        with self.quotes_lock:
+            for owned_quote in self.clients[client_name].owned_stock:
+                if (not (owned_quote in self.clients[client_name].quotes)):
+                    self.clients[client_name].quotes.append(owned_quote)
+                    self.quotes[owned_quote] = None
+        self.update_quotes()
+        print(f"Novo cliente: {client_name}")
 
         # Função que vai retornando o stream de notificações
+        #TODO: Verificar como fecha a conexão
         def stream():
             nonlocal self
             nonlocal client_name
@@ -464,6 +486,9 @@ class Homebroker:
             return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
 
         # Pega as informações do estado do cliente
+        for owned_quote in self.clients[client_name].owned_stock:
+            if (not owned_quote in self.clients[client_name].quotes):
+                self.clients[client_name].quotes.append(owned_quote)
         with self.get_market():
             quotes: Dict[str, float] = \
                 self.market.get_quotes(self.clients[client_name].quotes)
@@ -471,9 +496,10 @@ class Homebroker:
                 self.market.get_orders([client_name], active_only=True)[client_name]
             owned_stock: Dict[str, float] = \
                 self.market.get_stock_owned_by_client(client_name)
-        orders: Dict[str, Dict[str, Any]] = {
-            ticker: [Order.to_dict(order) for order in order_list]
-            for ticker, order_list in orders.items()}
+        orders: List[Dict[str, Any]] = [Order.to_dict(order) for order in orders]
+        # orders: Dict[str, Dict[str, Any]] = {
+        #     ticker: [Order.to_dict(order) for order in order_list]
+        #     for ticker, order_list in orders.items()}
         alerts: Dict[str, Tuple[float, float]] = {}
         with self.alerts_lock:
             for ticker in self.alert_limits:

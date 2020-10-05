@@ -19,8 +19,13 @@ public:
     std::string expiry_date;
 
     Order(std::string client_name_, OrderType type_, std::string ticker_, double amount_, double price_, std::string expiry_date_, bool active_ = true);
+    Order()
+    {
+
+    }
     web::json::value toJson();
-    Order fromJson(web::json::value &order_json);
+    static Order fromJson(web::json::value &order_json);
+    bool operator==(const Order &order_to_compare);
 };
 
 class Transaction
@@ -35,7 +40,7 @@ public:
 
     Transaction(std::string ticker_, std::string seller_name_, std::string buyer_name_, double amount_, double price_, std::string datetime_);
     web::json::value toJson();
-    Transaction fromJson(web::json::value &transaction_json);
+    static Transaction fromJson(web::json::value &transaction_json);
 };
 
 #endif
