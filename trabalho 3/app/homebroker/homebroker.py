@@ -448,23 +448,31 @@ class Homebroker:
         print(f"Novo cliente: {client_name}")
 
         # Função que vai retornando o stream de notificações
-        #TODO: Verificar como fecha a conexão
         def stream():
             nonlocal self
             nonlocal client_name
             self.clients[client_name].status = ClientStatus.CONNECTED
-            yield self.format_sse_message(data="0")
-
-            while True:
-                msg = self.clients[client_name].notification_queue.get()
-                if self.clients[client_name].status is not ClientStatus.CONNECTED:
-                    self.clients[client_name].notification_queue.put(msg)
-                    break
-                print('Mandando evento')
-                yield self.format_sse_message(msg)
-
-            self.clients[client_name].status = ClientStatus.DISCONNECTED
-            yield self.format_sse_message(data="1")
+            try:
+                # Mensagem de inicio
+                yield self.format_sse_message(data="0")
+                # Fica mandando as notificações quando elas acontecerem
+                while True:
+                    # Fica esperando uma mensagem
+                    msg = self.clients[client_name].notification_queue.get()
+                    # Se algum fator externo fechou o cliente enquanto esperava,
+                    # coloca a mensagem de volta na fila
+                    if self.clients[client_name].status is not ClientStatus.CONNECTED:
+                        self.clients[client_name].notification_queue.put(msg)
+                        break
+                    print('Mandando evento')
+                    # Envia ao cliente
+                    yield self.format_sse_message(msg)
+                # Mensagem de fim
+                yield self.format_sse_message(data="1")
+            # Quando o cliente desconecta ou se para por algum outro motivo,
+            # marca como desconectado
+            finally:
+                self.clients[client_name].status = ClientStatus.DISCONNECTED
 
         # Fica mandando stream das notificações enquanto status do cliente for connected
         response = flask.Response(stream(), mimetype='text/event-stream')
