@@ -188,6 +188,7 @@ public:
         quote_name->setObjectName(QStringLiteral("quote_name"));
         sizePolicy.setHeightForWidth(quote_name->sizePolicy().hasHeightForWidth());
         quote_name->setSizePolicy(sizePolicy);
+        quote_name->setInputMethodHints(Qt::ImhUppercaseOnly);
 
         gridLayout_3->addWidget(quote_name, 2, 0, 1, 1);
 
@@ -230,6 +231,7 @@ public:
         alert_quote->setObjectName(QStringLiteral("alert_quote"));
         sizePolicy.setHeightForWidth(alert_quote->sizePolicy().hasHeightForWidth());
         alert_quote->setSizePolicy(sizePolicy);
+        alert_quote->setInputMethodHints(Qt::ImhUppercaseOnly);
 
         gridLayout_4->addWidget(alert_quote, 1, 1, 1, 1);
 
@@ -350,6 +352,7 @@ public:
         order_name->setObjectName(QStringLiteral("order_name"));
         sizePolicy.setHeightForWidth(order_name->sizePolicy().hasHeightForWidth());
         order_name->setSizePolicy(sizePolicy);
+        order_name->setInputMethodHints(Qt::ImhUppercaseOnly);
 
         gridLayout_7->addWidget(order_name, 1, 1, 1, 2);
 

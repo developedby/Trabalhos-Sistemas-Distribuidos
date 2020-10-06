@@ -20,7 +20,7 @@ MainWindow::MainWindow(Client &client_) : QMainWindow(), _ui(Ui::MainWindow()), 
 
 void MainWindow::_onAddQuoteBtn()
 {
-    const std::string ticker = this->_ui.quote_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.quote_name->text().toUpper().toStdString();
 
     if (ticker.empty())
     {
@@ -34,7 +34,7 @@ void MainWindow::_onAddQuoteBtn()
 
 void MainWindow::_onRemoveQuoteBtn()
 {
-    const std::string ticker = this->_ui.quote_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.quote_name->text().toUpper().toStdString();
 
     if (ticker.empty())
     {
@@ -47,7 +47,7 @@ void MainWindow::_onRemoveQuoteBtn()
 
 void MainWindow::_onAddAlertBtn()
 {
-    const std::string ticker = this->_ui.alert_quote->text().toUtf8().constData();
+    const std::string ticker = this->_ui.alert_quote->text().toUpper().toStdString();
     bool ok[2];
     float stub[2];
     stub[0] = this->_ui.alert_price_low->text().toFloat(&ok[0]);
@@ -81,7 +81,7 @@ void MainWindow::_onAddAlertBtn()
 
 void MainWindow::_onCreateOrderBtn()
 {
-    const std::string ticker = this->_ui.order_name->text().toUtf8().constData();
+    const std::string ticker = this->_ui.order_name->text().toUpper().toStdString();
     bool ok[3];
     float stub[3];
 
