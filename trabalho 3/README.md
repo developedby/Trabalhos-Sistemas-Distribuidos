@@ -1,4 +1,4 @@
-# Trabalho 2 - Mercado da Bolsa de Valores
+# Trabalho 3 - Mercado da Bolsa de Valores usando serviços web (REST)
 
 CSS30 - S71 : Sistemas Distribuídos 2020.2
 
@@ -14,11 +14,18 @@ O sistema consiste de 3 partes:
 ## Como rodar
 1. Abrir o nameserver do Pyro (run_nameserver.sh)
 2. Abrir o simulador de bolsa (python3 run_homebroker.py)
-3. Abrir o servidor do Homebroker (python3 run_homebroker.py)
-4. Abrir o cliente (python3 run_client.py)
+3. Abrir o servidor do Homebroker (./run_homebroker.sh)
+4. Abrir o cliente (./run_client.sh)
 5. Inserir o nome de usuário
 
 ## Requisitos
 * python >= 3.6
 * Pyro 5 (https://pypi.org/project/Pyro5/)
 * yfinance (https://pypi.org/project/yfinance/)
+* flask (https://pypi.org/project/Flask/)
+
+* cpprest (https://github.com/microsoft/cpprestsdk)
+* LibCurl (https://curl.haxx.se/libcurl/)
+* qt5 (https://www.qt.io/)
+* cmake >= 3.9 (https://cmake.org/)
+* compilador de c++ >= 14
