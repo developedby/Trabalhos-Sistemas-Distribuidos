@@ -12,6 +12,7 @@
 #include <functional>
 
 std::function<void(std::string result)> func = nullptr;
+CURL *curl = nullptr;
 
 size_t on_data(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
@@ -77,7 +78,7 @@ void hold_sse(std::string url_, std::function<void(std::string result)> callback
     func = callback_func;
     const char* http_headers = "Accept: text/event-stream";
     const char* url = url_.c_str();
-    CURL *curl = curl_handle(0);
+    curl = curl_handle(0);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
@@ -100,6 +101,7 @@ void hold_sse(std::string url_, std::function<void(std::string result)> callback
             curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url); 
         }
         fprintf(stderr, "%s: HTTP(S) status code %ld\n", effective_url, response_code);
+        std::cout << "Servidor não disponível" << std::endl;
         exit(1);
     }
 
@@ -119,4 +121,18 @@ void hold_sse(std::string url_, std::function<void(std::string result)> callback
         curl_slist_free_all(headers);
     }
     // callback_func("data: 1");
+}
+
+void close_connection()
+{
+    // static CURL *curl_handles[MAX_HANDLES];
+    // static int curl_initialised = 1;
+    // memset(curl_handles, 0, sizeof(curl_handles));
+    curl_global_init(CURL_GLOBAL_ALL);  /* In windows, this will init the winsock stuff */ 
+    atexit(curl_global_cleanup);
+    if (curl != nullptr)
+    {
+        curl_easy_cleanup(curl);
+    }
+
 }

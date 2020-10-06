@@ -6,8 +6,8 @@
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
 
-#ifndef MAIN_WINDOW_H
-#define MAIN_WINDOW_H
+#ifndef UI_MAIN_WINDOW_H
+#define UI_MAIN_WINDOW_H
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QAction>
@@ -77,8 +77,8 @@ public:
     QFrame *owned_stock_group;
     QGridLayout *gridLayout_10;
     QGridLayout *gridLayout_9;
-    QLabel *own_stock_title;
-    QTableWidget *own_stock_table;
+    QLabel *owned_stock_title;
+    QTableWidget *owned_stock_table;
     QFrame *messages_group;
     QGridLayout *gridLayout_12;
     QGridLayout *gridLayout_11;
@@ -434,36 +434,36 @@ public:
         gridLayout_10->setObjectName(QStringLiteral("gridLayout_10"));
         gridLayout_9 = new QGridLayout();
         gridLayout_9->setObjectName(QStringLiteral("gridLayout_9"));
-        own_stock_title = new QLabel(owned_stock_group);
-        own_stock_title->setObjectName(QStringLiteral("own_stock_title"));
-        sizePolicy2.setHeightForWidth(own_stock_title->sizePolicy().hasHeightForWidth());
-        own_stock_title->setSizePolicy(sizePolicy2);
-        own_stock_title->setAlignment(Qt::AlignCenter);
+        owned_stock_title = new QLabel(owned_stock_group);
+        owned_stock_title->setObjectName(QStringLiteral("owned_stock_title"));
+        sizePolicy2.setHeightForWidth(owned_stock_title->sizePolicy().hasHeightForWidth());
+        owned_stock_title->setSizePolicy(sizePolicy2);
+        owned_stock_title->setAlignment(Qt::AlignCenter);
 
-        gridLayout_9->addWidget(own_stock_title, 0, 0, 1, 1);
+        gridLayout_9->addWidget(owned_stock_title, 0, 0, 1, 1);
 
-        own_stock_table = new QTableWidget(owned_stock_group);
-        if (own_stock_table->columnCount() < 3)
-            own_stock_table->setColumnCount(3);
+        owned_stock_table = new QTableWidget(owned_stock_group);
+        if (owned_stock_table->columnCount() < 3)
+            owned_stock_table->setColumnCount(3);
         QTableWidgetItem *__qtablewidgetitem8 = new QTableWidgetItem();
         __qtablewidgetitem8->setTextAlignment(Qt::AlignCenter);
-        own_stock_table->setHorizontalHeaderItem(0, __qtablewidgetitem8);
+        owned_stock_table->setHorizontalHeaderItem(0, __qtablewidgetitem8);
         QTableWidgetItem *__qtablewidgetitem9 = new QTableWidgetItem();
         __qtablewidgetitem9->setTextAlignment(Qt::AlignCenter);
-        own_stock_table->setHorizontalHeaderItem(1, __qtablewidgetitem9);
+        owned_stock_table->setHorizontalHeaderItem(1, __qtablewidgetitem9);
         QTableWidgetItem *__qtablewidgetitem10 = new QTableWidgetItem();
         __qtablewidgetitem10->setTextAlignment(Qt::AlignCenter);
-        own_stock_table->setHorizontalHeaderItem(2, __qtablewidgetitem10);
-        own_stock_table->setObjectName(QStringLiteral("own_stock_table"));
-        own_stock_table->horizontalHeader()->setCascadingSectionResizes(true);
-        own_stock_table->horizontalHeader()->setDefaultSectionSize(212);
-        own_stock_table->horizontalHeader()->setProperty("showSortIndicator", QVariant(true));
-        own_stock_table->horizontalHeader()->setStretchLastSection(true);
-        own_stock_table->verticalHeader()->setCascadingSectionResizes(true);
-        own_stock_table->verticalHeader()->setProperty("showSortIndicator", QVariant(true));
-        own_stock_table->verticalHeader()->setStretchLastSection(true);
+        owned_stock_table->setHorizontalHeaderItem(2, __qtablewidgetitem10);
+        owned_stock_table->setObjectName(QStringLiteral("owned_stock_table"));
+        owned_stock_table->horizontalHeader()->setCascadingSectionResizes(true);
+        owned_stock_table->horizontalHeader()->setDefaultSectionSize(212);
+        owned_stock_table->horizontalHeader()->setProperty("showSortIndicator", QVariant(true));
+        owned_stock_table->horizontalHeader()->setStretchLastSection(true);
+        owned_stock_table->verticalHeader()->setCascadingSectionResizes(true);
+        owned_stock_table->verticalHeader()->setProperty("showSortIndicator", QVariant(true));
+        owned_stock_table->verticalHeader()->setStretchLastSection(true);
 
-        gridLayout_9->addWidget(own_stock_table, 1, 0, 1, 1);
+        gridLayout_9->addWidget(owned_stock_table, 1, 0, 1, 1);
 
 
         gridLayout_10->addLayout(gridLayout_9, 0, 0, 1, 1);
@@ -546,12 +546,12 @@ public:
         buy_order->setText(QApplication::translate("MainWindow", "Comprar", Q_NULLPTR));
         sell_order->setText(QApplication::translate("MainWindow", "Vender", Q_NULLPTR));
         create_order_btn->setText(QApplication::translate("MainWindow", "Criar", Q_NULLPTR));
-        own_stock_title->setText(QApplication::translate("MainWindow", "Carteira", Q_NULLPTR));
-        QTableWidgetItem *___qtablewidgetitem8 = own_stock_table->horizontalHeaderItem(0);
+        owned_stock_title->setText(QApplication::translate("MainWindow", "Carteira", Q_NULLPTR));
+        QTableWidgetItem *___qtablewidgetitem8 = owned_stock_table->horizontalHeaderItem(0);
         ___qtablewidgetitem8->setText(QApplication::translate("MainWindow", "Nome", Q_NULLPTR));
-        QTableWidgetItem *___qtablewidgetitem9 = own_stock_table->horizontalHeaderItem(1);
+        QTableWidgetItem *___qtablewidgetitem9 = owned_stock_table->horizontalHeaderItem(1);
         ___qtablewidgetitem9->setText(QApplication::translate("MainWindow", "Quantidade", Q_NULLPTR));
-        QTableWidgetItem *___qtablewidgetitem10 = own_stock_table->horizontalHeaderItem(2);
+        QTableWidgetItem *___qtablewidgetitem10 = owned_stock_table->horizontalHeaderItem(2);
         ___qtablewidgetitem10->setText(QApplication::translate("MainWindow", " Valor Total", Q_NULLPTR));
         messages_title->setText(QApplication::translate("MainWindow", "Mensagens", Q_NULLPTR));
     } // retranslateUi
@@ -564,4 +564,4 @@ namespace Ui {
 
 QT_END_NAMESPACE
 
-#endif // MAIN_WINDOW_H
+#endif // UI_MAIN_WINDOW_H

@@ -9,4 +9,6 @@
 // void hold_sse(std::string url, size_t *callback_func(char *ptr, size_t size, size_t nmemb, void *userdata));
 void hold_sse(std::string url, std::function<void(std::string result)> callback_func);
 
+void close_connection();
+
 #endif

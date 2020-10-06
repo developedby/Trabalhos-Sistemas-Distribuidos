@@ -26,10 +26,11 @@ public:
     void clearAlertAction();
     void removeQuotes(std::string ticker);
     void removeAlert(std::string ticker);
-    void addMessage(std::string msg);
+    void addMessage(std::string msg, bool error = false);
     void clearOrderAction();
     void updateOrders(std::vector<Order> orders);
-    void updateOwnQuotes(std::map<std::string, std::pair<double, double>> own_stocks);
+    void updateOwnedQuotes(std::map<std::string, std::pair<double, double>> owned_stocks);
+    void closeEvent( QCloseEvent* event );
 
 signals:
     void showMainWindowSignal();

@@ -24,7 +24,8 @@ void MainWindow::_onAddQuoteBtn()
 
     if (ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;
+        std::string msg = "Ação: Valor inserido inválido";
+        this->addMessage(msg, true);
         return;
     }
 
@@ -37,7 +38,8 @@ void MainWindow::_onRemoveQuoteBtn()
 
     if (ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;
+        std::string msg = "Ação: Valor inserido inválido";
+        this->addMessage(msg, true);
         return;
     }
     this->_client.removeStockFromQuotes(ticker);
@@ -60,10 +62,17 @@ void MainWindow::_onAddAlertBtn()
         high_price = stub[1];
     }
     QList<QTableWidgetItem *> results = this->_ui.quote_table->findItems(QString::fromStdString(ticker), Qt::MatchExactly);
-    if (low_price < 0 || high_price < 0 || ticker.empty() || results.size() <= 0)
+    if (low_price < 0 || high_price < 0 || ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;  
+        std::string msg = "Alerta: Valores inseridos inválidos";
+        this->addMessage(msg, true);
         return; 
+    }
+    else if (results.size() <= 0)
+    {
+        std::string msg = "Não é possível gerar alerta para ações que não estejam sendo monitoradas";
+        this->addMessage(msg, true);
+        return;
     }
     
     this->_client.addQuoteAlert(ticker, low_price, high_price);
@@ -96,7 +105,8 @@ void MainWindow::_onCreateOrderBtn()
 
     if (amount < 0 || price < 0 || expiration_minutes < 0 || (!sell_order && !buy_order) || ticker.empty())
     {
-        std::cout << "Valores inválidos" << std::endl;  
+        std::string msg = "Ordem: Valores inseridos inválidos";
+        this->addMessage(msg, true);
         return; 
     }
 
@@ -187,13 +197,25 @@ void MainWindow::removeAlert(std::string ticker)
     }
 }
 
-void MainWindow::addMessage(std::string msg)
+void MainWindow::addMessage(std::string msg, bool error)
 {
     time_t timestamp = time(NULL);
     std::string timestamp_string = time_to_string(&timestamp);
     QString final_string = QString::fromStdString(timestamp_string) + ": " + QString::fromStdString(msg) + '\n';
     this->_ui.messages->setReadOnly(false);
-    this->_ui.messages->insertPlainText(final_string);
+    QTextCursor cursor( this->_ui.messages->textCursor() );
+
+    QTextCharFormat format;
+    if (error)
+    {
+        format.setForeground(QBrush(QColor("red")));
+    }
+    else
+    {
+        format.setForeground(QBrush(QColor("blue")));
+    }
+    cursor.setCharFormat( format );
+    cursor.insertText(final_string);
 }
 
 void MainWindow::clearOrderAction()
@@ -223,19 +245,29 @@ void MainWindow::updateOrders(std::vector<Order> orders)
     }
 }
 
-void MainWindow::updateOwnQuotes(std::map<std::string, std::pair<double, double>> own_stocks)
+void MainWindow::updateOwnedQuotes(std::map<std::string, std::pair<double, double>> owned_stocks)
 {
-    while(this->_ui.own_stock_table->rowCount())
+    while(this->_ui.owned_stock_table->rowCount())
     {
-        this->_ui.own_stock_table->removeRow(0);
+        this->_ui.owned_stock_table->removeRow(0);
     }
 
-    for (auto own_stock:own_stocks)
+    for (auto owned_stock:owned_stocks)
     {
-        int row = this->_ui.own_stock_table->rowCount();
-        this->_ui.own_stock_table->insertRow(row);
-        this->_ui.own_stock_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(own_stock.first)));
-        this->_ui.own_stock_table->setItem(row, 1, new QTableWidgetItem(QString::number(own_stock.second.first)));
-        this->_ui.own_stock_table->setItem(row, 2, new QTableWidgetItem(QString::number(own_stock.second.second)));
+        int row = this->_ui.owned_stock_table->rowCount();
+        this->_ui.owned_stock_table->insertRow(row);
+        this->_ui.owned_stock_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(owned_stock.first)));
+        this->_ui.owned_stock_table->setItem(row, 1, new QTableWidgetItem(QString::number(owned_stock.second.first)));
+        this->_ui.owned_stock_table->setItem(row, 2, new QTableWidgetItem(QString::number(owned_stock.second.second)));
     }
+}
+
+void MainWindow::closeEvent( QCloseEvent* event )
+{
+    if (this->_client.connection_status == ClientConnectionStatus::Running)
+    {
+        this->_client.connection_status = ClientConnectionStatus::Close;
+        this->_client.close();
+    }
+    // event->accept();
 }

@@ -17,6 +17,14 @@ class ClientLoginWindow;
 class LoginEvent;
 
 
+enum class ClientConnectionStatus
+{
+    Waiting,
+    Running,
+    Close
+};
+
+
 class Client : public QObject {
     Q_OBJECT
     std::map<std::string, double> _quotes; //ticker->price
@@ -37,6 +45,9 @@ class Client : public QObject {
     std::string _order_url;
     std::string _limit_url;
     std::string _quote_url;
+    std::string _close_url;
+
+    bool _connection_closed;
 
     // std::thread *_events_thread;
     // QThread _events_thread;
@@ -51,6 +62,7 @@ class Client : public QObject {
     void _eventsCallback(std::string result);
     void _addAlertCallback(web::http::http_response response);
     void _getStateCallback(web::http::http_response response, web::json::value const &jvalue);
+    void _closeCallback(web::http::http_response response);
 
     friend void make_request_without_json_response(web::http::client::http_client & client, web::http::method mtd, web::json::value const &jvalue, 
                                         std::function<void(web::http::http_response response)> callback_func);
@@ -59,6 +71,8 @@ class Client : public QObject {
                                     std::function<void(web::http::http_response response, web::json::value const &jvalue)> callback_func);
     
 public:
+    ClientConnectionStatus connection_status;
+
     Client(std::string uri);
     void createOrder(OrderType order_type,
                      std::string ticker, 
@@ -75,6 +89,7 @@ public:
     void notifyOrder(web::json::value notification_json);
     void login(std::string client_name);
     void getState();
+    void close();
 signals:
     void showErrorSignal();
     void closeLoginWindowSignal();

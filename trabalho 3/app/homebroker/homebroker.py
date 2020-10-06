@@ -635,3 +635,18 @@ def get_client_status() -> flask.Response:
 def index():
     with open('./api.html', 'r') as api_file:
         return api_file.read(-1)
+
+@flask_app.route('/close', methods=['GET'])
+def close_connection() -> flask.Response:
+    global homebroker
+    # Extrae o nome do cliente do request
+    try:
+        client_name = flask.request.args['client_name']
+    # Se não tinha um dos argumentos
+    except KeyError:
+        return str(HomebrokerErrorCode.INVALID_MESSAGE), 400
+    if (homebroker.clients[client_name].status == ClientStatus.CONNECTED):
+        homebroker.clients[client_name].status = ClientStatus.CLOSING
+    return "", 200
+    
+    
