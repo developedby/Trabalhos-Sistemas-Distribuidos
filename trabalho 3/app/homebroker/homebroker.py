@@ -220,13 +220,14 @@ class Homebroker:
                     with self.get_market():
                         self.clients[client_name].owned_stock = \
                             self.market.get_stock_owned_by_client(client_name)
-                        
-                    for owned_quote in self.clients[client_name].owned_stock:
-                        if (not owned_quote in self.clients[client_name].quotes):
-                            self.clients[client_name].quotes.append(owned_quote)
+                    
+                    # Coloca as ações da carteira do cliente na lista de interesse dele
+                    for ticker in self.clients[client_name].owned_stock:
+                        if ticker not in self.clients[client_name].quotes:
+                            self.clients[client_name].quotes.append(ticker)
                             with self.quotes_lock:
                                 with self.get_market():
-                                    self.quotes[owned_quote] = self.market.get_quotes(owned_quote)
+                                    self.quotes[ticker] = self.market.get_quotes([ticker])
                             
                 notifications_per_client[client_name][3] = self.clients[client_name].owned_stock
 
@@ -524,7 +525,7 @@ flask_app = flask.Flask(__name__)
 flask_app.config["DEBUG"] = True
 print("Flask App rodando")
 
-
+# Funções do Flask
 @flask_app.route('/quote', methods=['POST'])
 def add_stock_to_quotes() -> flask.Response:
     global homebroker

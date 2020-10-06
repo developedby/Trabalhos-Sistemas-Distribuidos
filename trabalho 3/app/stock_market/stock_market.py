@@ -552,6 +552,7 @@ class StockMarket:
 
         # Dependendo do numero de ações para pegar cotação faz algo diferente
         # por causa da estrutura de dados que o yfinance usa
+        print(f"get_quotes: {len(tickers)} tickers - {tickers}")
         if len(tickers) == 0:
             return {}
         data = yf.download(tickers, period="1d")["Adj Close"]
@@ -559,11 +560,10 @@ class StockMarket:
             quotes = {tickers[0]: round(float(data.values[0]), 2) if len(data.values) > 0 else None}
         else:
             print(1, data)
-            quotes = {ticker: None for ticker in tickers}
+            quotes: Dict[str, Optional[float]] = {ticker: None for ticker in tickers}
             for ticker in quotes:
                 quote = data.loc[:, ticker.upper()].values[0]
                 print(2, quote)
-                #print(quote, type(quote))
                 if not math.isnan(quote):
                     quotes[ticker] = round(float(quote), 2)
                     print(3, quotes)
