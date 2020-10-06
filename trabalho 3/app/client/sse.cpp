@@ -12,8 +12,17 @@
 #include <functional>
 
 std::function<void(std::string result)> func = nullptr;
-CURL *curl = nullptr;
+// CURL *curl = nullptr;
 
+/** Callback usada quando tem um evento, pega o conteúdo do mesmo. Se tiver uma callback externa, a chama com os dados
+ * 
+ *  @param ptr                  Poteiro para os dados 
+ *  @param size                 Sempre 1
+ *  @param nmemb                Tamanho dos dados
+ *  @param userdata             Possível dados do usuário
+ * 
+ *  @return                     Tamanho dos dados
+ */
 size_t on_data(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     std::string result = std::string(ptr, size * nmemb);
@@ -25,6 +34,11 @@ size_t on_data(char *ptr, size_t size, size_t nmemb, void *userdata)
     return size * nmemb;
 }
 
+/** Verifica se o evento é event-stream.
+ * 
+ *  @param curl                 Ponteiro para o curl
+ *  @return                     Resultado da verificação
+ */
 static const char* on_verify(CURL* curl) 
 {  
     static const char expected_content_type[] = "text/event-stream";
@@ -40,9 +54,13 @@ static const char* on_verify(CURL* curl)
         return 0;
     }
   return 0;
-//   return "Invalid content_type, should be text/event-stream";
 }
 
+/** Cria um cabeçalho curl
+ * 
+ *  @param index                Index do curl
+ *  @return                     Ponteiro para uma estrutura curl
+ */
 static CURL* curl_handle(int index) 
 {
     static int curl_initialised = 0;
@@ -72,20 +90,18 @@ static CURL* curl_handle(int index)
     return curl;
 }
 
-// void hold_sse(std::string url_, size_t callback_func(char *ptr, size_t size, size_t nmemb, void *userdata))
 void hold_sse(std::string url_, std::function<void(std::string result)> callback_func)
 {
     func = callback_func;
     const char* http_headers = "Accept: text/event-stream";
     const char* url = url_.c_str();
-    curl = curl_handle(0);
+    CURL *curl = curl_handle(0);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, http_headers);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers); 
-    // std::function<size_t(char *ptr, size_t size, size_t nmemb, void *userdata)> func = on_data;
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_data);
 
     CURLcode res = curl_easy_perform(curl);
@@ -112,27 +128,10 @@ void hold_sse(std::string url_, std::function<void(std::string result)> callback
         if(!effective_url)
         {
             curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url); 
-        }          
-        // fprintf(stderr, "%s: %s\n", effective_url, verification_error);
-        // exit(1);
+        }
     }
     if(headers)
     {
         curl_slist_free_all(headers);
     }
-    // callback_func("data: 1");
-}
-
-void close_connection()
-{
-    // static CURL *curl_handles[MAX_HANDLES];
-    // static int curl_initialised = 1;
-    // memset(curl_handles, 0, sizeof(curl_handles));
-    curl_global_init(CURL_GLOBAL_ALL);  /* In windows, this will init the winsock stuff */ 
-    atexit(curl_global_cleanup);
-    if (curl != nullptr)
-    {
-        curl_easy_cleanup(curl);
-    }
-
 }

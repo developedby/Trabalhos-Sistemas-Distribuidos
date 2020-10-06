@@ -5,6 +5,11 @@
 #include <time.h>
 #pragma comment(lib, "cpprest_2_10")
 
+/** Converte um time_t para o formato %Y-%m-%d %H:%M:%S
+ *
+ *  @param timestamp                time_t para ser convertido
+ *  @return                         String no formato convertido
+ */
 std::string time_to_string(time_t *timestamp)
 {
     char buffer [80];

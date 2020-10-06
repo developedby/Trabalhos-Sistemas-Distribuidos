@@ -520,7 +520,7 @@ public:
         QTableWidgetItem *___qtablewidgetitem1 = quote_table->horizontalHeaderItem(1);
         ___qtablewidgetitem1->setText(QApplication::translate("MainWindow", "Cota\303\247\303\243o", Q_NULLPTR));
         QTableWidgetItem *___qtablewidgetitem2 = quote_table->horizontalHeaderItem(2);
-        ___qtablewidgetitem2->setText(QApplication::translate("MainWindow", "Alerta Registradro", Q_NULLPTR));
+        ___qtablewidgetitem2->setText(QApplication::translate("MainWindow", "Alerta Registrado", Q_NULLPTR));
         quote_action_title->setText(QApplication::translate("MainWindow", "Adicionar ou remover cota\303\247\303\243o", Q_NULLPTR));
         quote_add_title->setText(QApplication::translate("MainWindow", "Nome da a\303\247\303\243o", Q_NULLPTR));
         add_quote_btn->setText(QApplication::translate("MainWindow", "Adicionar", Q_NULLPTR));

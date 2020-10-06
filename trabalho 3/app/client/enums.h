@@ -3,20 +3,18 @@
 
 #include <string>
 
+//Enum com os possíveis tipos de ordem
 enum class OrderType 
 {
     BUY,
     SELL
 };
 
-enum class HomebrokerErrorCode
-{
-    SUCCESS,
-    FORBIDDEN_NAME,
-    NOT_ENOUGH_STOCK,
-    UNKNOWN_TICKER
-};
-
+/** Pega o correspondente do tipo da ordem (compra->venda e vice e versa)
+ *  
+ *  @param type                 Tipo da ordem
+ *  @return                     Ordem oposta
+ */
 static OrderType get_matching(OrderType type)
 {
     if (type == OrderType::BUY)
@@ -31,6 +29,11 @@ static OrderType get_matching(OrderType type)
     return OrderType::BUY;
 }
 
+/** Pega a string que define uma ordem
+ *  
+ *  @param type                 Tipo da ordem
+ *  @return                     String com a resposta
+ */
 static std::string enum_to_string(OrderType type)
 {
     if (type == OrderType::BUY)
@@ -45,6 +48,11 @@ static std::string enum_to_string(OrderType type)
     return "";
 }
 
+/** Cria uma OrderType a partir de uma string
+ *  
+ *  @param type_string          String que corresponde à OrderType
+ *  @return                     OrderType
+ */
 static OrderType string_to_enum(std::string type_string)
 {
     if (type_string == "BuyOrder")
@@ -59,6 +67,11 @@ static OrderType string_to_enum(std::string type_string)
     return OrderType::BUY;
 }
 
+/** Pega a string em português que define uma ordem
+ *  
+ *  @param type                 Tipo da ordem
+ *  @return                     String com a resposta
+ */
 static std::string enum_to_string_portuguese(OrderType type)
 {
     if (type == OrderType::BUY)

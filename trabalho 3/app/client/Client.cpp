@@ -24,6 +24,14 @@ void display_json(web::json::value const & jvalue, utility::string_t const & pre
     std::cout << prefix << jvalue.serialize() << std::endl;
 }
 
+/** Faz a requisição http espeficicamente
+ *
+ *  @param client               URL HTTP da requisição
+ *  @param mtd                  Método HTTP da requisição
+ *  @param jvalue               JSON para mandar para o servidor.
+ * 
+ *  @return                     Task com a resposta da requisição.
+ */
 pplx::task<web::http::http_response> make_task_request(web::http::client::http_client & client, web::http::method mtd, web::json::value const & jvalue)
 {
     return (mtd == web::http::methods::GET || mtd == web::http::methods::HEAD) ? 
@@ -142,7 +150,7 @@ void LoginEvent::_eventsCallback(std::string result)
             else
             {
                 //Erro no login
-                this->_client.showErrorSignal();
+                this->_client.showLoginErrorSignal();
             }
             
         }
@@ -160,10 +168,6 @@ void LoginEvent::run()
     hold_sse(this->_url, std::bind(&LoginEvent::_eventsCallback, this, std::placeholders::_1));
 }
 
-
-
-
-
 Client::Client(std::string uri) : _login_url(uri + "login"), _status_url(uri + "status"),
                                   _order_url(uri + "order"), _limit_url(uri + "limit"),
                                   _quote_url(uri + "quote"), _close_url(uri + "close"),
@@ -175,31 +179,32 @@ Client::Client(std::string uri) : _login_url(uri + "login"), _status_url(uri + "
     _client_name = "";
     _ticker_to_remove = "";
     _connection_closed = false;
-    connect(this, SIGNAL(showErrorSignal()), this->_login_gui, SLOT(showError()));
+    connect(this, SIGNAL(showLoginErrorSignal()), this->_login_gui, SLOT(showError()));
     connect(this, SIGNAL(closeLoginWindowSignal()), this->_login_gui, SLOT(close()));
     connect(this, SIGNAL(showMainWindowSignal()), this->_gui, SLOT(show()));
 }
 
 void Client::_loginCallback(web::http::http_response response)
 {
-    // if (response.status_code() == web::http::status_codes::OK)
-    // {
-    //     this->_client.showMainWindow();
-    // }
-    // else if(response.status_code() == web::http::status_codes::Forbidden)
-    // {
-    //     this->_clientlogin_gui->showError();
-    // }
+    if (response.status_code() == web::http::status_codes::OK)
+    {
+        this->connection_status = ClientConnectionStatus::Running;
+        this->showMainWindowSignal();
+        this->closeLoginWindowSignal();
+        this->getState();
+    }
+    else if(response.status_code() == web::http::status_codes::Forbidden)
+    {
+        this->showLoginErrorSignal();
+    }
 }
 
 void Client::login(std::string client_name)
 {
-    // close_connection();
     std::string url = this->_login_url + "?client_name=" + client_name;
     this->_client_name = client_name;
     this->_events = new LoginEvent(*this, url);
-
-    // this->_events_thread = QThread::create(hold_sse, url, std::bind(&Client::_eventsCallback, this, std::placeholders::_1));
+    
     this->_events->start();
 }
 
