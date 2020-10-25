@@ -2,6 +2,7 @@
 import datetime
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -69,7 +70,10 @@ class Homebroker:
         # Registra o objeto no daemon do Pyro e no nameserver
         self.daemon = pyro.Daemon()
         my_uri = self.daemon.register(self)
-        nameserver.register('homebroker', my_uri)
+        nameserver.register(f'homebroker-{self.name}', my_uri)
+
+        # Registra o sinal pra fechar direito o programa
+        signal.signal(signal.SIGINT, self.close)
 
         # Cria a thread que fica pegando atualizações da bolsa
         self.thread_updates = threading.Thread(target=self.update_data, daemon=True)
@@ -80,7 +84,7 @@ class Homebroker:
         self.thread_request_loop.start()
 
     def load_initial_state(self):
-        self.instance_path = Path(f'./app/homebroker/instances/{self.name}')
+        self.instance_path = Path(f'./instances/{self.name}')
         clients_path = self.instance_path / 'clients'
 
         if not os.path.isdir(self.instance_path):
@@ -104,10 +108,12 @@ class Homebroker:
             self.clients[new_client.name] = new_client
 
         # Carrega as outras informações
-        data = json.load(self.instance_path/'internal_data.json')
-        self.quotes = data['quotes']
-        self.alert_limits = data['alert_limits']
-        self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
+        if os.path.isfile(self.instance_path/'internal_data.json'):
+            with open(self.instance_path/'internal_data.json', 'r') as fp:
+                data = json.load(fp)
+            self.quotes = data['quotes']
+            self.alert_limits = data['alert_limits']
+            self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
 
     def write_internal_data_file(self):
         with self.quotes_lock:
@@ -121,15 +127,15 @@ class Homebroker:
 
     def run(self):
         print("Rodando Homebroker")
+
         try:
             self.daemon.requestLoop()
         except KeyboardInterrupt:
             pass
         finally:
-            print('Fechando Homebroker')
             self.close()
 
-    def close(self):
+    def close(self, *args, **kwargs):
         """
         Termina o programa.
         Fecha as conexões.
@@ -138,6 +144,7 @@ class Homebroker:
             clients_lock
             market_lock
         """
+        print("Fechando o homebroker")
         try:
             # Fecha a conexão com os clientes
             with self.clients_lock:
@@ -152,7 +159,9 @@ class Homebroker:
                 self.market._pyroRelease()
         finally:
             self.write_internal_data_file()
-            os.remove(self.instance_path / f'{self.name}.~lock')
+            if os.path.isfile(self.instance_path / 'instance_lock.~lock'):
+                os.remove(self.instance_path / 'instance_lock.~lock')
+            sys.exit(0)
 
     @contextmanager
     def get_market(self):
@@ -592,7 +601,8 @@ class Homebroker:
         return flask.jsonify(
             quotes=quotes, orders=orders, owned_stock=owned_stock, alerts=alerts)
 
-homebroker = Homebroker(5)
+hb_name = input("Insira o nome do homebroker: ")
+homebroker = Homebroker(hb_name, 5)
 print("Homebroker backend rodando")
 
 flask_app = flask.Flask(__name__)
