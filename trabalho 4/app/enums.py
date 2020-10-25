@@ -38,6 +38,15 @@ class HomebrokerErrorCode(Enum):
 
 class TransactionState(Enum):
     """Possíveis estados de uma transação"""
-    ACTIVETED = auto()
-    DESACTIVETED = auto()
+
+    ACTIVE = auto()
     PENDING = auto()
+    FAILED = auto()
+    ABORTED = auto()
+    COMPLETED = auto()
+
+class VotingState(Enum):
+    """Possíveis estados de uma transação"""
+    YES = auto()
+    NO = auto()
+    NOT_READY = auto()

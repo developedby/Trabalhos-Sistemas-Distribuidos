@@ -100,6 +100,7 @@ class Transaction:
                  amount: float,
                  price: float,
                  datetime: datetime.datetime,
+                 _id: Optional[int]
                  **kwargs):
         self.ticker = ticker
         self.seller_name = seller_name
@@ -107,6 +108,7 @@ class Transaction:
         self.amount = amount
         self.price = price
         self.datetime = datetime
+        self.id = _id
 
     @staticmethod
     def to_dict(transaction: 'Transaction') -> Dict[str, Any]:
@@ -119,6 +121,7 @@ class Transaction:
             'amount': transaction.amount,
             'price': transaction.price,
             'datetime': transaction.datetime.strftime(DATETIME_FORMAT)
+            'id': _id
         }
 
     @staticmethod
@@ -131,4 +134,6 @@ class Transaction:
             dict_['amount'],
             dict_['price'],
             datetime.datetime.strptime(dict_['datetime'], DATETIME_FORMAT)
+            if ('id' in dict_):
+                dict_['_id']
         )

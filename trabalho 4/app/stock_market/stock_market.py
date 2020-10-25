@@ -205,6 +205,7 @@ class StockMarket:
                         where id = {order_id}''')
 
     def decrement_order(self, order_id: int, order_type: OrderType, decrement_amount: int) -> int:
+        new_id = None
         old_order = self.get_order_from_id(order_id, order_type)
         # Se ultrapassa, da ValueError
         if decrement_amount > old_order.amount:
@@ -233,7 +234,8 @@ class StockMarket:
                         0
                     )''')
             new_id = self.db_cursor.lastrowid
-            return new_id
+
+        return new_id
 
     def get_order_from_id(self, order_id: int, order_type: OrderType) -> Order:
         data = self.db_execute(
@@ -278,8 +280,11 @@ class StockMarket:
         # Executa transações com os clientes dados
         for i, matching_id in enumerate(matching_ids):
             # Calcula quantidade e preço da transação
+
             transaction_amount = min(matching_data[i][3], order_amount)
             price = matching_data[i][4]
+
+            
 
             new_id = self.decrement_order(order_id, order.type, transaction_amount)
             new_matching_id = self.decrement_order(matching_id, matching_type.value, transaction_amount)
