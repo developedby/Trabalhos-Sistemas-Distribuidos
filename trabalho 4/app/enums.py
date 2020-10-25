@@ -35,3 +35,9 @@ class HomebrokerErrorCode(Enum):
 
     def __str__(self):
         return str(self.value)
+
+class TransactionState(Enum):
+    """Possíveis estados de uma transação"""
+    ACTIVETED = auto()
+    DESACTIVETED = auto()
+    PENDING = auto()
