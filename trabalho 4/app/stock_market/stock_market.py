@@ -18,6 +18,7 @@ import Pyro5.api as pyro
 from Pyro5.errors import excepthook as pyro_excepthook
 import yfinance as yf
 
+from ..consts import DATETIME_FORMAT
 from ..enums import OrderType, MarketErrorCode
 from ..order import Order, Transaction
 
@@ -35,8 +36,6 @@ class StockMarket:
 
         # Para mostrar exceções remotas em um ofrmato melhor
         sys.excepthook = pyro_excepthook
-
-        self.datetime_format = '%Y-%m-%d %H:%M:%S'
 
         # Tenta se conectar com o nameserver
         nameserver = pyro.locate_ns()
@@ -128,7 +127,7 @@ class StockMarket:
                 {buy_order_id},
                 {transaction_amount},
                 {trade_price},
-                '{datetime.datetime.now().strftime(self.datetime_format)}'
+                '{datetime.datetime.now().strftime(DATETIME_FORMAT)}'
             )""")
         #print(command)
         self.db_execute(command)
@@ -139,13 +138,13 @@ class StockMarket:
             f"""update BuyOrder set active = 0 
                 where active = 1 and 
                 datetime(expiry_date)
-                    < datetime('{datetime.datetime.now().strftime(self.datetime_format)}')""")
+                    < datetime('{datetime.datetime.now().strftime(DATETIME_FORMAT)}')""")
 
         self.db_execute(
             f"""update SellOrder set active = 0 
                 where active = 1 and 
                 datetime(expiry_date)
-                    < datetime('{datetime.datetime.now().strftime(self.datetime_format)}')""")
+                    < datetime('{datetime.datetime.now().strftime(DATETIME_FORMAT)}')""")
         self.db.commit()
 
     def try_execute_active_orders(self):
@@ -192,7 +191,7 @@ class StockMarket:
                     ticker=ticker,
                     amount=order_entry[3],
                     price=order_price,
-                    expiry_date=datetime.datetime.strptime(order_entry[5], self.datetime_format),
+                    expiry_date=datetime.datetime.strptime(order_entry[5], DATETIME_FORMAT),
                     active=True
                 )
                 # Se tiver um preço adequado, executa a transação
@@ -425,7 +424,7 @@ class StockMarket:
                     ticker=order[2],
                     amount=order[3],
                     price=order[4],
-                    expiry_date=datetime.datetime.strptime(order[5], self.datetime_format),
+                    expiry_date=datetime.datetime.strptime(order[5], DATETIME_FORMAT),
                     active=bool(order[6])
             ))
 
@@ -444,7 +443,7 @@ class StockMarket:
                     ticker=order[2],
                     amount=order[3],
                     price=order[4],
-                    expiry_date=datetime.datetime.strptime(order[5], self.datetime_format),
+                    expiry_date=datetime.datetime.strptime(order[5], DATETIME_FORMAT),
                     active=bool(order[6])
             ))
 
@@ -627,7 +626,7 @@ class StockMarket:
                     buyer_name=id_to_name[entry[2]] if entry[2] in id_to_name else "Market",
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], self.datetime_format)
+                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT)
                 ))
             if entry[2] in ids:
                 transactions[id_to_name[entry[2]]].append(Transaction(
@@ -636,7 +635,7 @@ class StockMarket:
                     buyer_name=id_to_name[entry[2]],
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], self.datetime_format)
+                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT)
                 ))
         return transactions
 

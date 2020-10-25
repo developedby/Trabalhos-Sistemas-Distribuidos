@@ -2,9 +2,8 @@
 import datetime
 from typing import Optional, Dict, Any
 
+from .consts import DATETIME_FORMAT
 from .enums import OrderType
-
-datetime_format = '%Y-%m-%d %H:%M:%S'
 
 class Order:
     """
@@ -44,7 +43,6 @@ class Order:
     @staticmethod
     def to_dict(order: 'Order') -> Dict[str, Any]:
         """Serialização para mandar pelo Pyro."""
-        global datetime_format
         return {
             '__class__': 'Order',
             'client_name': order.client_name,
@@ -52,21 +50,20 @@ class Order:
             'ticker': order.ticker,
             'amount': order.amount,
             'price': order.price,
-            'expiry_date': order.expiry_date.strftime(datetime_format),
+            'expiry_date': order.expiry_date.strftime(DATETIME_FORMAT),
             'active': order.active
         }
 
     @staticmethod
     def from_dict(class_name: str, dict_: Dict[str, Any]) -> 'Order':
         """Desserialização para receber pelo Pyro."""
-        global datetime_format
         return Order(
             dict_['client_name'],
             OrderType(dict_['type']),
             dict_['ticker'],
             dict_['amount'],
             dict_['price'],
-            datetime.datetime.strptime(dict_['expiry_date'], datetime_format),
+            datetime.datetime.strptime(dict_['expiry_date'], DATETIME_FORMAT),
             dict_['active']
         )
 
@@ -119,18 +116,17 @@ class Transaction:
             'buyer_name': transaction.buyer_name,
             'amount': transaction.amount,
             'price': transaction.price,
-            'datetime': transaction.datetime.strftime(datetime_format)
+            'datetime': transaction.datetime.strftime(DATETIME_FORMAT)
         }
 
     @staticmethod
     def from_dict(class_name: str, dict_: Dict[str, Any]) -> 'Transaction':
         """Desserialização para receber pelo Pyro."""
-        global datetime_format
         return Transaction(
             dict_['ticker'],
             dict_['seller_name'],
             dict_['buyer_name'],
             dict_['amount'],
             dict_['price'],
-            datetime.datetime.strptime(dict_['datetime'], datetime_format)
+            datetime.datetime.strptime(dict_['datetime'], DATETIME_FORMAT)
         )

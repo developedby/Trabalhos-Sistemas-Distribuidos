@@ -14,6 +14,7 @@ import Pyro5.api as pyro
 from Pyro5.errors import excepthook as pyro_excepthook
 
 from .client import Client, ClientStatus
+from .consts import DATETIME_FORMAT
 from .enums import OrderType, MarketErrorCode, HomebrokerErrorCode
 from .order import Order, Transaction
 
@@ -29,10 +30,6 @@ class Homebroker:
     Periodicamente pega atualizações de StockMarket,
     avisando os clientes caso tenha ocorrido algum evento de interesse.
     """
-
-    # TODO: Deixar essa variavel compratilhada entre todos os arquivos
-    # Em vez de copiar varias vezes por ai
-    datetime_format = "%Y-%m-%d %H:%M:%S"
 
     def __init__(self, name: str, update_period: float):
         self.name = name
@@ -110,7 +107,7 @@ class Homebroker:
         data = json.load(self.instance_path/'internal_data.json')
         self.quotes = data['quotes']
         self.alert_limits = data['alert_limits']
-        self.last_updated = datetime.datetime.strptime(data['last_updated'], self.datetime_format)
+        self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
 
     def write_internal_data_file(self):
         with self.quotes_lock:
@@ -119,7 +116,7 @@ class Homebroker:
                     json.dump({
                         'quotes': self.quotes,
                         'alert_limits': self.alert_limits,
-                        'last_updated': self.last_updated.strftime(self.datetime_format)
+                        'last_updated': self.last_updated.strftime(DATETIME_FORMAT)
                     }, fp)
 
     def run(self):
@@ -272,7 +269,7 @@ class Homebroker:
             # Pega as transações novas
             with self.get_market():
                 transactions_per_client = self.market.get_transactions(
-                    self.clients.keys(), self.last_updated.strftime(self.datetime_format))
+                    self.clients.keys(), self.last_updated.strftime(DATETIME_FORMAT))
             # Atualiza o contador de tempo
             self.last_updated = datetime.datetime.now()
             # Atualiza a carteira dos clientes e avisa
