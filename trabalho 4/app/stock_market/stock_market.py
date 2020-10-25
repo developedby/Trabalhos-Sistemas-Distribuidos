@@ -204,6 +204,42 @@ class StockMarket:
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
 
+    def decrement_order(self, order_id: int, order_type: OrderType, decrement_amount: int) -> int:
+        old_order = self.get_order_from_id(order_id, order_type)
+        # Se ultrapassa, da ValueError
+        if decrement_amount > old_order.amount:
+            raise ValueError("Tentou decrementar uma ordem em mais do sua quantidade")
+        # Se esgota a ordem, marca como inativa
+        elif decrement_amount == old_order.amount:
+            self.db_execute(
+                f'''update {order_type.value}
+                    set active = 0 
+                    where id = {order_id}''')
+        # Se não, atualiza para ter a quantidade que sobrou da ordem
+        # E cria a ordem parcial que foi executada
+        else:
+            self.db_execute(
+                f'''update {order_type.value}
+                    set amount = {old_order.amount - decrement_amount} 
+                    where id = {order_id}''')
+            self.db_execute(
+                f'''insert into {order_type.value} (ticker, amount, price, expiry_date, client_id, active)
+                    values (
+                        '{old_order.ticker}',
+                        {decrement_amount},
+                        {old_order.price},
+                        '{old_order.expiry_date}', 
+                        (select id from Client where name = {old_order.client_name}),
+                        0
+                    )''')
+            new_id = self.db_cursor.lastrowid
+            return new_id
+
+    def get_order_from_id(self, order_id: int, order_type: OrderType) -> Order:
+        data = self.db_execute(
+            f'''select * from {order_type.value} where id = {order_id}''').fetchone()
+        return Order(data[1], order_type, data[2], data[3], data[4], data[5], data[6])
+
     def trade_with_internal_clients(self,
                                     order: Order,
                                     client_id: int,
@@ -218,6 +254,15 @@ class StockMarket:
         :param client_id: Id no DB do cliente que criou a ordem.
         :param matching_data: Ordens com as quais vai realizar as transações.
         '''
+
+        # Coloca a ordem que quer realizar no DB
+        self.db_execute(
+            f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active)
+                values (
+                    '{order.ticker}', {order.amount}, {order.price}, '{order.expiry_date}', 
+                    {client_id}, 1
+                )''')
+        order_id = self.db_cursor.lastrowid
 
         matching_type = order.type.get_matching()
         # Pega a quantidade de ações para serem transacionadas
@@ -236,46 +281,29 @@ class StockMarket:
             transaction_amount = min(matching_data[i][3], order_amount)
             price = matching_data[i][4]
 
-            # Para cada transação, cria uma ordem com o tamanho da transação
-            self.db_execute(
-                f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active)
-                        values ('{order.ticker}', {transaction_amount}, {order.price}, '{order.expiry_date}', 
-                        {client_id}, 0)''')
+            new_id = self.decrement_order(order_id, order.type, transaction_amount)
+            new_matching_id = self.decrement_order(matching_id, matching_type.value, transaction_amount)
 
-            new_id = self.db_cursor.lastrowid  # Id da ordem que foi criada
-
-            # Atualiza no db a ordem correspondente com a qual a transação está sendo feita
-            # Se a transação esgota a ordem correspondente, marca como inativa
-            if (transaction_amount == matching_data[i][3]):
-                self.db_execute(
-                    f'''update {matching_type.value}
-                        set active = 0 
-                        where id = {matching_id}''')
-            # Se não, atualiza para ter a quantidade que sobrou da ordem
-            else:
-                self.db_execute(
-                    f'''update {matching_type.value}
-                        set amount = {matching_data[i][3] - transaction_amount} 
-                        where id = {matching_id}''')
 
             # Salva a transação e atualiza a quantidade de ações possuidas
             if (order.type == OrderType.SELL):
-                self.create_transaction_log(
-                    new_id, matching_id, transaction_amount, price)
-
-                self.update_owned_stock(
-                    order.ticker, -transaction_amount, client_id)
-                self.update_owned_stock(
-                    order.ticker, transaction_amount, matching_data[i][1])
-
+                sell_order_id = new_id
+                buy_order_id = new_matching_id
+                seller_id = client_id
+                buyer_id = matching_data[i][1]
             else:
-                self.create_transaction_log(
-                    matching_id, new_id, transaction_amount, price)
+                sell_order_id = new_matching_id
+                buy_order_id = new_id
+                seller_id = matching_data[i][1]
+                buyer_id = client_id
 
-                self.update_owned_stock(
-                    order.ticker, transaction_amount, client_id)
-                self.update_owned_stock(
-                    order.ticker, -transaction_amount, matching_data[i][1])
+            self.create_transaction_log(
+                sell_order_id, buy_order_id, transaction_amount, price)
+
+            self.update_owned_stock(
+                order.ticker, transaction_amount, buyer_id)
+            self.update_owned_stock(
+                order.ticker, -transaction_amount, seller_id)
 
             order_amount -= transaction_amount
         
