@@ -1,6 +1,6 @@
 """Classes auxiliares."""
 import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 from .consts import DATETIME_FORMAT
 from .enums import OrderType
@@ -22,7 +22,7 @@ class Order:
                  ticker: str,
                  amount: float,
                  price: float,
-                 expiry_date: datetime.datetime,
+                 expiry_date: Union[datetime.datetime, str],
                  active: Optional[bool] = None,
                  **kwargs):
         self.client_name = client_name
@@ -30,6 +30,8 @@ class Order:
         self.ticker = ticker
         self.amount = amount
         self.price = price
+        if isinstance(expiry_date, str):
+            expiry_date = datetime.datetime.strptime(expiry_date, DATETIME_FORMAT)
         self.expiry_date = expiry_date
         self.active = (
             active if active is not None
