@@ -19,6 +19,8 @@
 #include <sstream>
 #pragma comment(lib, "cpprest_2_10")
 
+// Cliente tem que saber o nome do homebroker (da pra colocar como campo no login)
+
 void display_json(web::json::value const & jvalue, utility::string_t const & prefix)
 {
     std::cout << prefix << jvalue.serialize() << std::endl;
