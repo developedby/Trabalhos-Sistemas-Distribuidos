@@ -34,5 +34,5 @@ class Database:
             select ticker, amount from OwnedStock
             where client_id = (select id from Client where name = '{client_name}')
         """
-        data = self.execute(command)
+        data = self.execute(command).fetchall()
         return {entry[0]: entry[1] for entry in data}

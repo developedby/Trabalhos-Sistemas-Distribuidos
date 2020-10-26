@@ -228,17 +228,23 @@ class Coordinator:
         else:
             transaction_id = tid
 
+        print("Inicio open_transaction")
+
         buy_order = self.db.get_order_from_id(buy_order_id, OrderType.BUY)
         sell_order = self.db.get_order_from_id(sell_order_id, OrderType.SELL)
         
+        print("Obtive as ordens")
         buyer_uri = self.participants[buy_order.client_name]
         seller_uri = self.participants[sell_order.client_name]
+
+        print("Obtive as uris")
 
         buy_transaction = ParticipantTransaction(
             transaction_id, buy_order, amount, price, buy_order_id)
         sell_transaction = ParticipantTransaction(
             transaction_id, sell_order, amount, price, sell_order_id)
 
+        print("Criei as transações")
         self.transaction_operations[transaction_id] = CoordinatorTransaction(
             transaction_id,
             buy_order_id,
@@ -247,12 +253,15 @@ class Coordinator:
             price,
             [buy_order.client_name, sell_order.client_name])
         
+        print("Salvando estado temporario")
         self.save_temporary_state()
 
         with Pyro5.api.Proxy(buyer_uri) as buyer_proxy :
             buyer_proxy.prepare_transaction(buy_transaction)
         with Pyro5.api.Proxy(seller_uri) as seller_proxy :
             seller_proxy.prepare_transaction(sell_transaction)
+
+        print("Requisitei preparação das transações")
         
         #TODO: pegar as travas
 
@@ -490,10 +499,10 @@ class Participant:
         owned_stock = self.db.get_stock_owned_by_client(self.name)
         if (transaction.order.ticker in owned_stock):
             if (transaction.order.type == OrderType.BUY):
-                self.temporary_own_stock[transaction.order.ticker] += transaction.amount
+                self.temporary_own_stock[transaction.order.ticker] = owned_stock[transaction.order.ticker] + transaction.amount
             else:
                 if owned_stock[transaction.order.ticker] >= transaction.amount:
-                    self.temporary_own_stock[transaction.order.ticker] -= transaction.amount
+                    self.temporary_own_stock[transaction.order.ticker] = owned_stock[transaction.order.ticker] - transaction.amount
                 else:
                     transaction.state = TransactionState.FAILED
         else:

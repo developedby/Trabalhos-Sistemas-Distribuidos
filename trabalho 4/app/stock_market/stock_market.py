@@ -208,8 +208,6 @@ class StockMarket:
             if (amount >= order_amount):
                 break
 
-        # TODO: Usar o sistema de transações distribuidas
-
         # Executa transações com os clientes dados
         for i, matching_id in enumerate(matching_ids):
             # Calcula quantidade e preço da transação
@@ -223,6 +221,7 @@ class StockMarket:
                 sell_order_id = order_id
                 buy_order_id = matching_id
             self.coordinator.open_transaction(buy_order_id, sell_order_id, transaction_amount, price)
+            order_amount -= transaction_amount
 
         return order_amount
 
@@ -396,11 +395,12 @@ class StockMarket:
         self.db.execute(f"insert into Client(name) values ('{client_name}')")
 
         # Cria um novo participante e manda pro coordenador
-        new_participant = Participant(
-            client_name, self.coordinator.uri, self.db, self.daemon)
-        self.participants.append(new_participant)
-        self.coordinator.add_participants({new_participant.name: new_participant.uri})
-        new_participant.get_initial_state()
+        if (client_name != 'Market'):
+            new_participant = Participant(
+                client_name, self.coordinator.uri, self.db, self.daemon)
+            self.participants.append(new_participant)
+            self.coordinator.add_participants({new_participant.name: new_participant.uri})
+            new_participant.get_initial_state()
 
         print(f"Created client {client_name}")
         return MarketErrorCode.SUCCESS
