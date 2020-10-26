@@ -18,7 +18,7 @@ from Pyro5.errors import excepthook as pyro_excepthook
 import yfinance as yf
 
 from .database import Database
-from .transaction_operations import Coordinator, Participant
+from .transaction_operations import Coordinator, Participant, MarketParticipant
 from ..consts import DATETIME_FORMAT
 from ..enums import OrderType, MarketErrorCode
 from ..order import Order, Transaction
@@ -69,10 +69,14 @@ class StockMarket:
             Participant(client_name[0], self.coordinator.uri, self.db, self.daemon)
             for client_name in client_names
         ]
+        self.market_participant = MarketParticipant()
         self.coordinator.add_participants({
             participant.name: participant.uri
             for participant in self.participants
         })
+
+        self.coordinator.participants['Market'] = self.market_participant
+
         self.coordinator.get_initial_state()
         for participant in self.participants:
             participant.get_initial_state()
@@ -281,14 +285,14 @@ class StockMarket:
             if (amount >= order_amount):
                 break
 
+        # TODO: Usar o sistema de transações distribuidas
+
         # Executa transações com os clientes dados
         for i, matching_id in enumerate(matching_ids):
             # Calcula quantidade e preço da transação
 
             transaction_amount = min(matching_data[i][3], order_amount)
             price = matching_data[i][4]
-
-            
 
             new_id = self.decrement_order(order_id, order.type, transaction_amount)
             new_matching_id = self.decrement_order(matching_id, matching_type.value, transaction_amount)
@@ -349,6 +353,9 @@ class StockMarket:
             cursor = self.db.execute(command)
             cursor.fetchone()
             own_order_id = cursor.lastrowid
+        
+        # TODO: Usar o sistema de transações distribuidas
+
         # Se existe, marca como inativa
         else:
             command = f'update {order.type.value} set active = 0 where id = {order_id}'

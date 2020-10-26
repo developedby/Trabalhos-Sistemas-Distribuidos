@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import sys
+import time
 import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, Sequence, Mapping
@@ -281,7 +282,7 @@ class Coordinator:
                     participant_proxy.cancel_transaction(transaction_id)
 
     @Pyro5.api.expose
-    def signalize_transaction_completed(self, transaction_id, order_id, order_type):
+    def signal_transaction_completed(self, transaction_id, order_id, order_type):
         transaction = self.transaction_operations[transaction_id]
         transaction.finished_participants += 1
         if order_type == OrderType.BUY:
@@ -325,8 +326,7 @@ class Coordinator:
                 for t in data['transaction_operations']}
             
             for tid, transaction in self.transaction_operations.items():
-                if transaction.state != TransactionState.COMPLETED:
-                    # TODO: Não começa uma transação nova, tem que recuperar a antiga
+                if transaction.state not in (TransactionState.COMPLETED, TransactionState.ABORTED):
                     self.open_transaction(
                         transaction.initial_buy_order_id,
                         transaction.initial_sell_order_id,
@@ -379,9 +379,16 @@ class Participant:
 
     @Pyro5.api.expose
     def prepare_transaction(self, transaction):
-        # Se ultrapassa, da ValueError
+        """Executa as operações da transação e aguarda o coordenador."""
+        # Ve se já não esta executando essa transação
+        if transaction.id in self.transactions:
+            return
+
         self.transactions[transaction.id] = transaction
-        transaction.state = TransactionState.PENDING
+        transaction.state = TransactionState.ACTIVE
+        self.save_temporary_state()
+
+        # Se ultrapassa, da ValueError
         if transaction.amount > transaction.order.amount:
             transaction.state = TransactionState.FAILED
         # Se esgota a ordem, marca como inativa
@@ -405,14 +412,23 @@ class Participant:
                 self.temporary_own_stock[transaction.order.ticker] = transaction.amount
             else:
                 transaction.state = TransactionState.FAILED
+        
+        if transaction.state == TransactionState.ACTIVE:
+            self.transactions[transaction.id].state = TransactionState.PENDING
+        self.save_temporary_state()
 
     @Pyro5.api.expose
     def vote_for_transaction(self, transaction_id):
-        self.save_temporary_state()
-        if transaction_id in self.transactions:
-            if self.transactions[transaction_id].state == TransactionState.PENDING:
-                return True
-        return False
+        if transaction_id not in self.transactions:
+            return False
+
+        while self.transactions[transaction_id].state == TransactionState.ACTIVE:
+            time.sleep(0.01)
+
+        if self.transactions[transaction_id].state == TransactionState.PENDING:
+            return True
+        else:
+            return False
 
     @Pyro5.api.expose
     def commit_transaction(self, transaction_id):
@@ -450,7 +466,7 @@ class Participant:
         transaction.state = TransactionState.COMPLETED
 
         with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-            coord_proxy.signalize_transaction_completed(
+            coord_proxy.signal_transaction_completed(
                 transaction_id, new_id, transaction.order.type)
         self.save_state()
 
@@ -498,17 +514,77 @@ class Participant:
             with open(file_path, 'r+') as fp:
                 data = json.loads(fp.read())
             self.temporary_own_stock = data['temporary_own_stock']
-            transactions = {t['id']: ParticipantTransaction.from_dict('', t)
-                            for t in data['transactions']}
-            self.transactions = transactions
+            self.transactions = {
+                t['id']: ParticipantTransaction.from_dict('', t)
+                for t in data['transactions']}
             
             with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
+                # Pra cada transação no log
                 for tid, transaction in self.transactions.items():
-                    if transaction.state != TransactionState.COMPLETED:
-                        state = coord_proxy.get_transaction_state()
-                        if state != TransactionState.ABORTED:
-                            self.commit_transaction(tid)
+                    # Se é uma transação que tinha que executar
+                    # Ve se precisa começar de novo ou pode desistir
+                    if transaction.state == TransactionState.ACTIVE:
+                        coord_state = coord_proxy.get_transaction_state()
+                        if coord_state == TransactionState.ACTIVE:
+                            self.prepare_transaction(transaction)
+                        elif coord_state == TransactionState.ABORTED:
+                            transaction.state = TransactionState.ABORTED
                         else:
-                            self.transactions[tid].state = TransactionState.ABORTED
+                            print("Participant.get_initial_state: Ue, coord_state tem valor que não bate")
+                    # Se é uma transação que terminou e tava esperando
+                    # Ve se pode commitar ou se joga fora
+                    elif transaction.state == TransactionState.PENDING:
+                        coord_state = coord_proxy.get_transaction_state()
+                        if coord_state == TransactionState.ACTIVE:
+                            pass
+                        elif coord_state == TransactionState.COMPLETED:
+                            self.commit_transaction()
+                        elif coord_state == TransactionState.ABORTED:
+                            transaction.state = TransactionState.ABORTED
+                        else:
+                            print("Participant.get_initial_state: Ue, coord_state tem valor que não bate")
             
             self.save_state()
+
+
+class MarketParticipant:
+    # TODO
+    def __init__(self, db: Database, coordinator: Coordinator):
+        self.db = db
+        self.coordinator = coordinator
+        self.transactions: Dict[int, ParticipantTransaction] = {}
+
+    @Pyro5.api.expose
+    def prepare_transaction(self, transaction):
+        self.transactions[transaction.id] = transaction
+        self.transactions[transaction.id].state = TransactionState.PENDING
+        # TODO: Guarda o log do mercado
+
+    @Pyro5.api.expose
+    def vote_for_transaction(self, transaction_id):
+        return self.transactions[transaction_id].state == TransactionState.PENDING
+
+    @Pyro5.api.expose
+    def commit_transaction(self, transaction_id):
+        transaction = self.transactions[transaction_id]
+        # Cria a ordem no nome do mercado no db
+        command = (
+            f'''insert into {transaction.order.type.value}
+            (ticker, amount, price, expiry_date, client_id, active)
+            values (
+                '{transaction.order.ticker}',
+                {transaction.amount},
+                {transaction.price},
+                '{transaction.order.expiry_date}',
+                (select id from Client where name = 'Market'),
+                0
+            )'''
+        )
+        cursor = self.db.execute(command)
+        new_order_id = cursor.lastrowid
+        self.coordinator.signal_transaction_completed(
+            transaction_id, new_order_id, transaction.order.type.value)
+
+    @Pyro5.api.expose
+    def cancel_transaction(self, transaction_id):
+        self.transactions[transaction_id].state = TransactionState.ABORTED
