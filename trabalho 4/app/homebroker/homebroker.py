@@ -59,7 +59,7 @@ class Homebroker:
         self.clients: Dict[str, Client] = {}
         self.clients_lock = threading.Lock()
 
-        self.quotes: Dict[str, float] = {}
+        self.quotes: Dict[str, Optional[float]] = {}
         self.quotes_lock = threading.Lock()
 
         self.alert_limits: Dict[str, Dict[str, Tuple[float, float]]] = {}
@@ -262,7 +262,7 @@ class Homebroker:
             # Se uma ordem antiga deixou de estar ativa e expirou
             # Assume que desativou pela expiração , então avisa o cliente
             for client_name, client in self.clients.items():
-                with client.orders() as order_data:
+                with client.orders as order_data:
                     for order in order_data:
                         order_simple = (order.client_name, order.ticker)
                         if (order_simple not in active_orders) and order.is_expired():
@@ -271,7 +271,7 @@ class Homebroker:
             # Atualiza as ordens ativas
             for client_name, client_orders in active_orders_per_client.items():
                 notifications_per_client[client_name][1] = client_orders
-                with self.clients[client_name].orders() as _:
+                with self.clients[client_name].orders:
                     self.clients[client_name].orders.set(client_orders)
 
             # Pega as transações realizadas no último intervalo e atualiza as carteira
@@ -283,14 +283,14 @@ class Homebroker:
             self.last_updated = datetime.datetime.now()
             # Atualiza a carteira dos clientes e avisa
             for client_name, transactions in transactions_per_client.items():
-                with self.clients[client_name].owned_stock() as owned_stock:
+                with self.clients[client_name].owned_stock as owned_stock:
                     if transactions:
                         notifications_per_client[client_name][0] = transactions
                         with self.get_market():
                             self.clients[client_name].owned_stock.set(
                                 self.market.get_stock_owned_by_client(client_name))
                         # Coloca as ações da carteira do cliente na lista de interesse dele
-                        for ticker in self.clients[client_name].owned_stock:
+                        for ticker in self.clients[client_name].owned_stock.get():
                             with self.clients[client_name].quotes as quotes:
                                 if ticker not in quotes:
                                     with self.quotes_lock:
@@ -314,7 +314,7 @@ class Homebroker:
     @staticmethod
     def format_sse_message(data: str,
                            event: Optional[str] = None,
-                           id: Optional[str] = None) -> flask.Response:
+                           id: Optional[str] = None) -> str:
         """
         Retorna uma resposta no formato SSE.
 
@@ -357,7 +357,7 @@ class Homebroker:
             return str(HomebrokerErrorCode.UNKNOWN_TICKER), 404
 
 
-        with self.clients[client_name].quotes() as quotes:
+        with self.clients[client_name].quotes as quotes:
             if ticker not in quotes:
                 quotes.append(ticker)
 
@@ -384,7 +384,7 @@ class Homebroker:
 
         # Tenta remover a ação da lista de cotações do cliente
         try:
-            self.clients[client_name].quotes.remove(ticker)
+            self.clients[client_name].quotes.get().remove(ticker)
         # Se não tinha essa ação na lista
         except ValueError:
             return str(HomebrokerErrorCode.UNKNOWN_TICKER), 404
@@ -420,7 +420,7 @@ class Homebroker:
 
         # Pega todas as cotações desse cliente
         with self.quotes_lock:
-            client_quotes : Dict[str, float] = {
+            client_quotes : Dict[str, Optional[float]] = {
                 ticker: quote for ticker, quote in self.quotes.items()
                 if ticker in self.clients[client_name].quotes
             }
@@ -470,27 +470,26 @@ class Homebroker:
         """
         print('Create order', order)
 
-        with self.orders_lock:
-            with self.get_market():
-                # Manda pra bolsa
-                error = self.market.create_order(order)
-            error = MarketErrorCode(error)
-            # Se deu erro, retorna e avisa o cliente
-            if error is not MarketErrorCode.SUCCESS:
-                error = HomebrokerErrorCode[error.name]
-                if error in (HomebrokerErrorCode.EXPIRED_ORDER,):
-                    status = 400
-                elif error in (HomebrokerErrorCode.UNKNOWN_CLIENT,
-                               HomebrokerErrorCode.UNKNOWN_TICKER):
-                    status = 404
-                elif error in (HomebrokerErrorCode.NOT_ENOUGH_STOCK,):
-                    status = 403
-                # Se não é nenhum dos erros esperados, alguma coisa está errada com o servidor
-                else:
-                    status = 500
-                return str(error), status
+        with self.get_market():
+            # Manda pra bolsa
+            error = self.market.create_order(order)
+        error = MarketErrorCode(error)
+        # Se deu erro, retorna e avisa o cliente
+        if error is not MarketErrorCode.SUCCESS:
+            error = HomebrokerErrorCode[error.name]
+            if error in (HomebrokerErrorCode.EXPIRED_ORDER,):
+                status = 400
+            elif error in (HomebrokerErrorCode.UNKNOWN_CLIENT,
+                            HomebrokerErrorCode.UNKNOWN_TICKER):
+                status = 404
+            elif error in (HomebrokerErrorCode.NOT_ENOUGH_STOCK,):
+                status = 403
+            # Se não é nenhum dos erros esperados, alguma coisa está errada com o servidor
+            else:
+                status = 500
+            return str(error), status
 
-            self.clients[order.client_name].orders.append(order)
+        self.clients[order.client_name].orders.get().append(order)
 
         return str(HomebrokerErrorCode.SUCCESS), 200
 
@@ -524,9 +523,9 @@ class Homebroker:
             self.clients[client_name].orders = self.market.get_orders([client_name], active_only=True)[client_name]
             self.clients[client_name].owned_stock = self.market.get_stock_owned_by_client(client_name)
         with self.quotes_lock:
-            for owned_quote in self.clients[client_name].owned_stock:
+            for owned_quote in self.clients[client_name].owned_stock.get():
                 if (not (owned_quote in self.clients[client_name].quotes)):
-                    self.clients[client_name].quotes.append(owned_quote)
+                    self.clients[client_name].quotes.get().append(owned_quote)
                     self.quotes[owned_quote] = None
         self.update_quotes()
         print(f"Novo cliente: {client_name}")
@@ -578,20 +577,17 @@ class Homebroker:
             return str(HomebrokerErrorCode.UNKNOWN_CLIENT), 404
 
         # Pega as informações do estado do cliente
-        for owned_quote in self.clients[client_name].owned_stock:
+        for owned_quote in self.clients[client_name].owned_stock.get():
             if (not owned_quote in self.clients[client_name].quotes):
-                self.clients[client_name].quotes.append(owned_quote)
+                self.clients[client_name].quotes.get().append(owned_quote)
         with self.get_market():
-            quotes: Dict[str, float] = \
-                self.market.get_quotes(self.clients[client_name].quotes)
-            orders: List[Order] = \
-                self.market.get_orders([client_name], active_only=True)[client_name]
+            quotes: Dict[str, float] = self.market.get_quotes(
+                self.clients[client_name].quotes)
+            orders: List[Dict[str, Any]] = [
+                Order.to_dict(order)
+                for order in self.market.get_orders([client_name], active_only=True)[client_name]]
             owned_stock: Dict[str, float] = \
                 self.market.get_stock_owned_by_client(client_name)
-        orders: List[Dict[str, Any]] = [Order.to_dict(order) for order in orders]
-        # orders: Dict[str, Dict[str, Any]] = {
-        #     ticker: [Order.to_dict(order) for order in order_list]
-        #     for ticker, order_list in orders.items()}
         alerts: Dict[str, Tuple[float, float]] = {}
         with self.alerts_lock:
             for ticker in self.alert_limits:

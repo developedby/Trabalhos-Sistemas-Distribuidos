@@ -9,13 +9,11 @@ class Resource:
         self._resource = resource
         self._lock = threading.Lock()
 
-    @contextmanager
-    def __call__(self) -> Any:
-        resource = self.acquire()
-        try:
-            yield resource
-        finally:
-            self.release()
+    def __enter__(self) -> Any:
+        return self.acquire()
+    
+    def __exit__(self):
+        self.release()
 
     def acquire(self):
         self._lock.acquire()
