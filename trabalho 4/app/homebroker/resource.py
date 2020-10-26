@@ -1,3 +1,4 @@
+from inspect import Traceback
 import threading
 from contextlib import contextmanager
 from typing import Any
@@ -12,8 +13,9 @@ class Resource:
     def __enter__(self) -> Any:
         return self.acquire()
     
-    def __exit__(self):
+    def __exit__(self, type, value, traceback):
         self.release()
+        return False
 
     def acquire(self):
         self._lock.acquire()

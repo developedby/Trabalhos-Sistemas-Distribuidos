@@ -87,9 +87,8 @@ class Homebroker:
         self.instance_path = Path(f'./instances/{self.name}')
         clients_path = self.instance_path / 'clients'
 
-        if not os.path.isdir(self.instance_path):
-            os.mkdir(self.instance_path)
-            os.mkdir(clients_path)
+        if not os.path.isdir(clients_path):
+            os.makedirs(clients_path)
         
         # Tenta pegar a trava de instancia do homebroker
         try:
@@ -422,7 +421,7 @@ class Homebroker:
         with self.quotes_lock:
             client_quotes : Dict[str, Optional[float]] = {
                 ticker: quote for ticker, quote in self.quotes.items()
-                if ticker in self.clients[client_name].quotes
+                if ticker in self.clients[client_name].quotes.get()
             }
 
         return flask.jsonify(client_quotes)
@@ -520,11 +519,11 @@ class Homebroker:
                 self.market.add_client(client_name)
                 
         with self.get_market():
-            self.clients[client_name].orders = self.market.get_orders([client_name], active_only=True)[client_name]
-            self.clients[client_name].owned_stock = self.market.get_stock_owned_by_client(client_name)
+            self.clients[client_name].orders.set(self.market.get_orders([client_name], active_only=True)[client_name])
+            self.clients[client_name].owned_stock.set(self.market.get_stock_owned_by_client(client_name))
         with self.quotes_lock:
             for owned_quote in self.clients[client_name].owned_stock.get():
-                if (not (owned_quote in self.clients[client_name].quotes)):
+                if (not (owned_quote in self.clients[client_name].quotes.get())):
                     self.clients[client_name].quotes.get().append(owned_quote)
                     self.quotes[owned_quote] = None
         self.update_quotes()
@@ -578,11 +577,11 @@ class Homebroker:
 
         # Pega as informações do estado do cliente
         for owned_quote in self.clients[client_name].owned_stock.get():
-            if (not owned_quote in self.clients[client_name].quotes):
+            if (not owned_quote in self.clients[client_name].quotes.get()):
                 self.clients[client_name].quotes.get().append(owned_quote)
         with self.get_market():
             quotes: Dict[str, float] = self.market.get_quotes(
-                self.clients[client_name].quotes)
+                self.clients[client_name].quotes.get())
             orders: List[Dict[str, Any]] = [
                 Order.to_dict(order)
                 for order in self.market.get_orders([client_name], active_only=True)[client_name]]
