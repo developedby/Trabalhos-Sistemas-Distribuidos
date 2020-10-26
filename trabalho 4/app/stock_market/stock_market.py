@@ -243,7 +243,6 @@ class StockMarket:
         '''
         # Se a ordem não existe no DB, cria uma nova com os valroes de `order`
 
-        print("Verificando ordem original")
         if order_id is None:
             command = (
                 f'''insert into {order.type.value}
@@ -262,7 +261,6 @@ class StockMarket:
         else:
             own_order_id = order_id
 
-        print("Verificando ordem correspondente")
         matching_type = order.type.get_matching()
         # Cria a ordem correspondente no nome do mercado, com qual vai fazer a transação
         command = (
@@ -286,7 +284,6 @@ class StockMarket:
             sell_order_id = own_order_id
             buy_order_id = new_matching_id
 
-        print("Chamando coordenador")
         self.coordinator.open_transaction(buy_order_id, sell_order_id, order.amount, real_price)
 
     def client_has_stock(self,

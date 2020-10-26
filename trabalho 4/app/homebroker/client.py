@@ -65,7 +65,7 @@ class Client:
             'client_name': self.name,
             'quotes': self.quotes.get(),
             'owned_stock': self.owned_stock.get(),
-            'orders': [order.to_dict() for order in self.orders.get()]
+            'orders': [Order.to_dict(order) for order in self.orders.get()]
         })
 
     @staticmethod

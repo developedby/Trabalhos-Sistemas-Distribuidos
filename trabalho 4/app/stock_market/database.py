@@ -14,7 +14,9 @@ class Database:
     def execute(self, command: str, *args, **kwargs) -> sqlite3.Cursor:
         """Executa uma operação no DB."""
         with self.db_lock:
-            return self.db_cursor.execute(command, *args, **kwargs)
+            cursor =  self.db_cursor.execute(command, *args, **kwargs)
+            self.db.commit()
+            return cursor
 
     def close(self):
         self.db.close()

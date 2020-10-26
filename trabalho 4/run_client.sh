@@ -10,4 +10,7 @@ else
 fi
 
 make
-./client
+
+echo "Digite a porta onde o homebroker está rodando: "
+read port
+./client $port
