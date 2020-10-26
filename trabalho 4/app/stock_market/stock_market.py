@@ -1,7 +1,6 @@
 """
 Simulador de bolsa de valores.
 """
-
 import datetime
 import math
 import os
@@ -19,6 +18,7 @@ from Pyro5.errors import excepthook as pyro_excepthook
 import yfinance as yf
 
 from .database import Database
+from .transaction_operations import Coordinator, Participant
 from ..consts import DATETIME_FORMAT
 from ..enums import OrderType, MarketErrorCode
 from ..order import Order, Transaction
@@ -59,12 +59,23 @@ class StockMarket:
         self.add_client("Market")
 
         # Registra a aplicação no Pyro
-        daemon = pyro.Daemon()
-        uri = daemon.register(self)
+        self.daemon = pyro.Daemon()
+        uri = self.daemon.register(self)
 
         # Carrega o Coordenador e os participantes pra cada cliente
-        # TODO: Fazer
-
+        self.coordinator = Coordinator(self.db)
+        client_names = self.db.execute('select name from Client').fetchall()
+        self.participants = [
+            Participant(client_name[0], self.coordinator.uri, self.db, self.daemon)
+            for client_name in client_names
+        ]
+        self.coordinator.add_participants({
+            participant.name: participant.uri
+            for participant in self.participants
+        })
+        self.coordinator.get_initial_state()
+        for participant in self.participants:
+            participant.get_initial_state()
 
         # Registra no nameserver
         nameserver.register('stockmarket', uri)
@@ -74,7 +85,7 @@ class StockMarket:
         self.running = True
         print("Rodando Stock Market")
         try:
-            daemon.requestLoop()
+            self.daemon.requestLoop()
         except KeyboardInterrupt:
             pass
         finally:
@@ -483,6 +494,14 @@ class StockMarket:
         
         # Adiciona cliente no DB
         self.db.execute(f"insert into Client(name) values ('{client_name}')")
+
+        # Cria um novo participante e manda pro coordenador
+        new_participant = Participant(
+            client_name, self.coordinator.uri, self.db, self.daemon)
+        self.participants.append(new_participant)
+        self.coordinator.add_participants({new_participant.name: new_participant.uri})
+        new_participant.get_initial_state()
+
         print(f"Created client {client_name}")
         return MarketErrorCode.SUCCESS
 
@@ -665,9 +684,4 @@ class StockMarket:
     @pyro.expose
     def get_stock_owned_by_client(self, client_name: str) -> Dict[str, float]:
         """Retorna a carteira de ações de um cliente."""
-        command = f"""
-            select ticker, amount from OwnedStock
-            where client_id = (select id from Client where name = '{client_name}')
-        """
-        data = self.db.execute(command)
-        return {entry[0]: entry[1] for entry in data}
+        return self.db.get_stock_owned_by_client(client_name)
