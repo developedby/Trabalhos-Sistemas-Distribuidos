@@ -18,6 +18,7 @@ import Pyro5.api as pyro
 from Pyro5.errors import excepthook as pyro_excepthook
 import yfinance as yf
 
+from .database import Database
 from ..consts import DATETIME_FORMAT
 from ..enums import OrderType, MarketErrorCode
 from ..order import Order, Transaction
@@ -47,41 +48,41 @@ class StockMarket:
         pyro.register_dict_to_class('Transaction', Transaction.from_dict)
 
         # Conecta com o banco de dados e inicializa
-        self.db = sqlite3.connect(db_path, check_same_thread=False)
-        self.db_cursor = self.db.cursor()
-        self.db_lock = threading.Lock()
+        self.db = Database(db_path)
 
         # Comentar pra db persistente
-        # self.db_execute('delete from BuyOrder')
-        # self.db_execute('delete from Client')
-        # self.db_execute('delete from OwnedStock')
-        # self.db_execute('delete from SellOrder')
-        # self.db_execute('delete from StockTransaction')
+        # self.db.execute('delete from BuyOrder')
+        # self.db.execute('delete from Client')
+        # self.db.execute('delete from OwnedStock')
+        # self.db.execute('delete from SellOrder')
+        # self.db.execute('delete from StockTransaction')
         self.add_client("Market")
 
-        # Começa a servir a aplicação pelo Pyro
-        if use_pyro:
-            daemon = pyro.Daemon()
-            uri = daemon.register(self)
-            nameserver.register('stockmarket', uri)
-            nameserver._pyroRelease()
-            self.running = True
-            print("Rodando Stock Market")
-            try:
-                daemon.requestLoop()
-            except KeyboardInterrupt:
-                pass
-            finally:
-                self.close()
+        # Registra a aplicação no Pyro
+        daemon = pyro.Daemon()
+        uri = daemon.register(self)
+
+        # Carrega o Coordenador e os participantes pra cada cliente
+        # TODO: Fazer
+
+
+        # Registra no nameserver
+        nameserver.register('stockmarket', uri)
+        nameserver._pyroRelease()
+
+        # Começa a rodar
+        self.running = True
+        print("Rodando Stock Market")
+        try:
+            daemon.requestLoop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.close()
 
     def close(self):
         """Termina o aplicativo. Chamado após fechar a GUI e o Pyro."""
         self.db.close()
-
-    def db_execute(self, command, *args, **kwargs):
-        """Executa uma operação no DB."""
-        with self.db_lock:
-            return self.db_cursor.execute(command, *args, **kwargs)
 
     def update_owned_stock(self,
                            ticker: str,
@@ -95,7 +96,7 @@ class StockMarket:
         :param client_id: Id do cliente no DB.
         '''
         # Pega o id da entrada no db, para a quantidade que o cliente tem daquela ação
-        id_owned_stock = self.db_execute(
+        id_owned_stock = self.db.execute(
             f'''select id from OwnedStock 
                     where ticker = '{ticker}' and
                     client_id = {client_id}''').fetchone()
@@ -103,20 +104,18 @@ class StockMarket:
         # Se tem a ação, atualiza a quantidade
         if id_owned_stock:
             id_owned_stock = id_owned_stock[0]
-            self.db_execute(
+            self.db.execute(
                 f'''update OwnedStock set amount=amount + {change_amount}
                         where id = {id_owned_stock}''')
         #Se não tem, adiciona a ação
         else:
-            self.db_execute(
+            self.db.execute(
                 f'''insert into OwnedStock (ticker, amount, client_id)
                         values ('{ticker}', {change_amount}, {client_id})''')
-        
-        self.db.commit()
 
     def create_transaction_log(self,
-                               sell_order_id: int,
-                               buy_order_id: int,
+                               sell_order_id: Optional[int],
+                               buy_order_id: Optional[int],
                                transaction_amount: float,
                                trade_price: float):
         """Cria uma entrada no log de transações."""
@@ -130,22 +129,21 @@ class StockMarket:
                 '{datetime.datetime.now().strftime(DATETIME_FORMAT)}'
             )""")
         #print(command)
-        self.db_execute(command)
+        self.db.execute(command)
 
     def mark_expired_orders_as_inactive(self):
         '''Marca as ordens ativas que já expiraram como inativas.'''
-        self.db_execute(
+        self.db.execute(
             f"""update BuyOrder set active = 0 
                 where active = 1 and 
                 datetime(expiry_date)
                     < datetime('{datetime.datetime.now().strftime(DATETIME_FORMAT)}')""")
 
-        self.db_execute(
+        self.db.execute(
             f"""update SellOrder set active = 0 
                 where active = 1 and 
                 datetime(expiry_date)
                     < datetime('{datetime.datetime.now().strftime(DATETIME_FORMAT)}')""")
-        self.db.commit()
 
     def try_execute_active_orders(self):
         '''
@@ -156,11 +154,11 @@ class StockMarket:
         # Verifica se tem alguma ordem expirada
         # pra não executar uma transação que não deveria ocorrer
         self.mark_expired_orders_as_inactive()
-        active_buy_orders = self.db_execute(
+        active_buy_orders = self.db.execute(
             ''' select * from BuyOrder 
                     where active = 1 ''').fetchall()
 
-        active_sell_orders = self.db_execute(
+        active_sell_orders = self.db.execute(
             ''' select * from SellOrder 
                     where active = 1 ''').fetchall()
         # Tenta executa
@@ -200,30 +198,30 @@ class StockMarket:
                     self.trade_with_market(order, client_id, real_price, order_id)
             # Se a ação não existe mais no mercado, marca como inativa
             else:
-                self.db_execute(
+                self.db.execute(
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
 
-    def decrement_order(self, order_id: int, order_type: OrderType, decrement_amount: int) -> int:
+    def decrement_order(self, order_id: int, order_type: OrderType, decrement_amount: float) -> Optional[int]:
         new_id = None
-        old_order = self.get_order_from_id(order_id, order_type)
+        old_order = self.db.get_order_from_id(order_id, order_type)
         # Se ultrapassa, da ValueError
         if decrement_amount > old_order.amount:
             raise ValueError("Tentou decrementar uma ordem em mais do sua quantidade")
         # Se esgota a ordem, marca como inativa
         elif decrement_amount == old_order.amount:
-            self.db_execute(
+            self.db.execute(
                 f'''update {order_type.value}
                     set active = 0 
                     where id = {order_id}''')
         # Se não, atualiza para ter a quantidade que sobrou da ordem
         # E cria a ordem parcial que foi executada
         else:
-            self.db_execute(
+            self.db.execute(
                 f'''update {order_type.value}
                     set amount = {old_order.amount - decrement_amount} 
                     where id = {order_id}''')
-            self.db_execute(
+            cursor = self.db.execute(
                 f'''insert into {order_type.value} (ticker, amount, price, expiry_date, client_id, active)
                     values (
                         '{old_order.ticker}',
@@ -233,14 +231,9 @@ class StockMarket:
                         (select id from Client where name = {old_order.client_name}),
                         0
                     )''')
-            new_id = self.db_cursor.lastrowid
+            new_id = cursor.lastrowid
 
         return new_id
-
-    def get_order_from_id(self, order_id: int, order_type: OrderType) -> Order:
-        data = self.db_execute(
-            f'''select * from {order_type.value} where id = {order_id}''').fetchone()
-        return Order(data[1], order_type, data[2], data[3], data[4], data[5], data[6])
 
     def trade_with_internal_clients(self,
                                     order: Order,
@@ -258,13 +251,13 @@ class StockMarket:
         '''
 
         # Coloca a ordem que quer realizar no DB
-        self.db_execute(
+        cursor = self.db.execute(
             f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active)
                 values (
                     '{order.ticker}', {order.amount}, {order.price}, '{order.expiry_date}', 
                     {client_id}, 1
                 )''')
-        order_id = self.db_cursor.lastrowid
+        order_id = cursor.lastrowid
 
         matching_type = order.type.get_matching()
         # Pega a quantidade de ações para serem transacionadas
@@ -311,8 +304,6 @@ class StockMarket:
                 order.ticker, -transaction_amount, seller_id)
 
             order_amount -= transaction_amount
-        
-        self.db.commit()
 
         return order_amount
 
@@ -344,12 +335,13 @@ class StockMarket:
                         {client_id},
                         0
                     )''')
-            self.db_execute(command).fetchone()
-            own_order_id = self.db_cursor.lastrowid
+            cursor = self.db.execute(command)
+            cursor.fetchone()
+            own_order_id = cursor.lastrowid
         # Se existe, marca como inativa
         else:
             command = f'update {order.type.value} set active = 0 where id = {order_id}'
-            self.db_execute(command)
+            self.db.execute(command)
             own_order_id = order_id
 
         matching_type = order.type.get_matching()
@@ -365,8 +357,8 @@ class StockMarket:
                 (select id from Client where name = 'Market'),
                 0
             )''')
-        self.db_execute(command)
-        new_matching_id = self.db_cursor.lastrowid
+        cursor = self.db.execute(command)
+        new_matching_id = cursor.lastrowid
 
         if (order.type == OrderType.SELL):
             sell_order_id = own_order_id
@@ -383,8 +375,6 @@ class StockMarket:
         # Atualiza quantidade de ações do cliente
         self.update_owned_stock(order.ticker, change_amount, client_id)
 
-        self.db.commit()
-
     def client_has_stock(self,
                          client_id: int,
                          ticker: str,
@@ -394,7 +384,7 @@ class StockMarket:
         Se `amount` foi dado, verifica se tem pelo menos a quantidade dada.
         """
         # Pega os dados do DB
-        data = self.db_execute(
+        data = self.db.execute(
             f'''select os.* from Client as c 
                 inner join OwnedStock as os on c.id = os.client_id 
                     where os.ticker = '{ticker}' and 
@@ -421,7 +411,7 @@ class StockMarket:
         Retorna um dicionario com os ids de cada nome dado.
         Se o nome não existe, tem valor None.
         """
-        data = self.db_execute(
+        data = self.db.execute(
             f'''select id, name from Client 
                 where name in {f"('{client_names[0]}')" if (len(client_names) == 1) else tuple(client_names)} '''
         ).fetchall()
@@ -442,7 +432,7 @@ class StockMarket:
         :param active_only: Se retorna só as ordens ativas, ou se retorna todas.
         """
         orders = []
-        buy_data = self.db_execute(
+        buy_data = self.db.execute(
             f'''select * from BuyOrder
                 where 
                     client_id = (
@@ -461,7 +451,7 @@ class StockMarket:
                     active=bool(order[6])
             ))
 
-        sell_data = self.db_execute(
+        sell_data = self.db.execute(
             f'''select * from SellOrder
                 where 
                     client_id = (
@@ -492,8 +482,7 @@ class StockMarket:
             return MarketErrorCode.CLIENT_ALREADY_EXISTS
         
         # Adiciona cliente no DB
-        self.db_execute(f"insert into Client(name) values ('{client_name}')")
-        self.db.commit()
+        self.db.execute(f"insert into Client(name) values ('{client_name}')")
         print(f"Created client {client_name}")
         return MarketErrorCode.SUCCESS
 
@@ -545,7 +534,7 @@ class StockMarket:
                 and price {'>=' if order.type == OrderType.SELL else '<='} {target_price} 
                 and active = 1
             order by price {'desc' if order.type == OrderType.SELL else 'asc'}''')
-        matching_data = self.db_execute(command).fetchall()
+        matching_data = self.db.execute(command).fetchall()
         
         # Se os clientes internos tem um preço melhor que o do mercado transaciona o máximo possível
         if len(matching_data) > 0:
@@ -562,7 +551,7 @@ class StockMarket:
             # Caso contrario, guarda o que sobrou da ordem no DB
             else:
                 print("Creating order")
-                self.db_execute(
+                self.db.execute(
                     f'''insert into {order.type.value}
                         (ticker, amount, price, expiry_date, client_id, active) 
                         values (
@@ -572,7 +561,6 @@ class StockMarket:
                             '{order.expiry_date}', 
                             {client_id},
                             1)''')
-        self.db.commit()
         return MarketErrorCode.SUCCESS
 
     @pyro.expose
@@ -631,14 +619,14 @@ class StockMarket:
         if not client_names:
             return {}
 
-        name_to_id = self.get_client_ids_by_names(client_names)
-        ids = tuple(name_to_id.values())
-        id_to_name = {name_to_id[name]: name for name in name_to_id}
+        client_name_to_id = self.get_client_ids_by_names(client_names)
+        ids = tuple(client_name_to_id.values())
+        client_id_to_name = {client_name_to_id[name]: name for name in client_name_to_id}
         ids_str = str(ids) if len(ids) > 1 else f'({ids[0]})'
 
         # Pega as informações do DB
         command = (
-            f"""select bo.ticker, so.client_id, bo.client_id, t.amount, t.price, t.datetime from
+            f"""select bo.ticker, so.client_id, bo.client_id, t.amount, t.price, t.datetime, t.id from
                 StockTransaction as t
                 inner join SellOrder as so on t.sell_id = so.id
                 inner join BuyOrder as bo on t.buy_id = bo.id
@@ -646,29 +634,31 @@ class StockMarket:
             (f"and datetime(t.datetime) >= datetime('{from_date}')"
                 if from_date is not None else '')
         )
-        data = self.db_execute(command)
+        data = self.db.execute(command)
 
         # Transforma em um formato mais amigavel, separando por cliente
         transactions = {client: [] for client in client_names}
         for entry in data:
             print(entry[5], from_date)
             if entry[1] in ids:
-                transactions[id_to_name[entry[1]]].append(Transaction(
+                transactions[client_id_to_name[entry[1]]].append(Transaction(
                     ticker=entry[0],
-                    seller_name=id_to_name[entry[1]],
-                    buyer_name=id_to_name[entry[2]] if entry[2] in id_to_name else "Market",
+                    seller_name=client_id_to_name[entry[1]],
+                    buyer_name=client_id_to_name[entry[2]] if entry[2] in client_id_to_name else "Market",
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT)
+                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT),
+                    id_=entry[6]
                 ))
             if entry[2] in ids:
-                transactions[id_to_name[entry[2]]].append(Transaction(
+                transactions[client_id_to_name[entry[2]]].append(Transaction(
                     ticker=entry[0],
-                    seller_name=id_to_name[entry[1]] if entry[1] in id_to_name else "Market",
-                    buyer_name=id_to_name[entry[2]],
+                    seller_name=client_id_to_name[entry[1]] if entry[1] in client_id_to_name else "Market",
+                    buyer_name=client_id_to_name[entry[2]],
                     amount=entry[3],
                     price=entry[4],
-                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT)
+                    datetime=datetime.datetime.strptime(entry[5], DATETIME_FORMAT),
+                    id_=entry[6]
                 ))
         return transactions
 
@@ -679,5 +669,5 @@ class StockMarket:
             select ticker, amount from OwnedStock
             where client_id = (select id from Client where name = '{client_name}')
         """
-        data = self.db_execute(command)
+        data = self.db.execute(command)
         return {entry[0]: entry[1] for entry in data}

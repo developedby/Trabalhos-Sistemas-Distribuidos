@@ -92,6 +92,7 @@ class Transaction:
     :param amount: Quantidade que foi transacionada.
     :param price: Preço por unidade com que a ação foi transacionada.
     :param datetime: Data-hora em que ocorreu a transação.
+    :param id_: Id da transação no banco de dados.
     """
     def __init__(self,
                  ticker: str,
@@ -100,7 +101,7 @@ class Transaction:
                  amount: float,
                  price: float,
                  datetime: datetime.datetime,
-                 _id: Optional[int]
+                 id_: int,
                  **kwargs):
         self.ticker = ticker
         self.seller_name = seller_name
@@ -108,7 +109,7 @@ class Transaction:
         self.amount = amount
         self.price = price
         self.datetime = datetime
-        self.id = _id
+        self.id = id_
 
     @staticmethod
     def to_dict(transaction: 'Transaction') -> Dict[str, Any]:
@@ -120,8 +121,8 @@ class Transaction:
             'buyer_name': transaction.buyer_name,
             'amount': transaction.amount,
             'price': transaction.price,
-            'datetime': transaction.datetime.strftime(DATETIME_FORMAT)
-            'id': _id
+            'datetime': transaction.datetime.strftime(DATETIME_FORMAT),
+            'id': transaction.id
         }
 
     @staticmethod
@@ -133,7 +134,6 @@ class Transaction:
             dict_['buyer_name'],
             dict_['amount'],
             dict_['price'],
-            datetime.datetime.strptime(dict_['datetime'], DATETIME_FORMAT)
-            if ('id' in dict_):
-                dict_['_id']
+            datetime.datetime.strptime(dict_['datetime'], DATETIME_FORMAT),
+            dict_['id']
         )
