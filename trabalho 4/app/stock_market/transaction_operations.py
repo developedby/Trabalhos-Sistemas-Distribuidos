@@ -248,6 +248,7 @@ class Coordinator:
         else:
             transaction_id = tid
 
+        print("Creating execution ", transaction_id)
         buy_order = self.db.get_order_from_id(buy_order_id, OrderType.BUY)
         sell_order = self.db.get_order_from_id(sell_order_id, OrderType.SELL)
         
@@ -341,18 +342,11 @@ class Coordinator:
                 self.save_temporary_state()
             for participant_name in participants:
                 with Pyro5.api.Proxy(self.participants[participant_name]) as participant_proxy:
-                    # def f(transaction_id):
-                    #     participant_proxy._pyroClaimOwnership()
-                    #     participant_proxy.commit_transaction(transaction_id)  
-                    # threading.Thread(target=f,
-                    #      args=(transaction_id,),
-                    #      daemon=True).start()
-
                     participant_proxy.commit_transaction(transaction_id)
 
-                    # self.signal_transaction_completed(transaction_id, order_id, OrderType(order_type))
         # Se alguém desistiu ou deu erro
         else:
+            print("Transaction ", transaction_id, "beeing aborted")
             self.transaction_operations[transaction_id].state = TransactionState.ABORTED
             self.save_state(transaction_id)
             for participant_name in participants:
@@ -581,7 +575,7 @@ class Participant:
         transaction = self.transactions[transaction_id]
         if (transaction.state == TransactionState.COMPLETED):
             with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-                print("Participante dizendo que já fez a transacao", ParticipantTransaction.to_dict(transaction))
+                print("Participant already finished this transaction", ParticipantTransaction.to_dict(transaction))
                 coord_proxy.signal_transaction_completed(
                 transaction_id, transaction.order_id, transaction.order.type)
             return
@@ -619,9 +613,8 @@ class Participant:
         transaction.state = TransactionState.COMPLETED
         self.save_state(transaction_id)
 
-        # return new_id, transaction.order.type
         with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-            print("Participante dizendo que acabou a transacao", transaction_id, new_id, transaction.order.type)
+            print("Participant finishing transaction", transaction_id, new_id, transaction.order.type)
 
             coord_proxy.signal_transaction_completed(
                 transaction_id, new_id, transaction.order.type)
@@ -691,7 +684,7 @@ class Participant:
                     elif coord_state == TransactionState.ABORTED:
                         transaction.state = TransactionState.ABORTED
                     else:
-                        print("Participant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
+                        print("Participant.get_initial_state: Invalid coord_state", transaction.state, coord_state)
                 # Se é uma transação que terminou e tava esperando
                 # Ve se pode commitar ou se joga fora
                 elif transaction.state == TransactionState.PENDING:
@@ -703,7 +696,7 @@ class Participant:
                     elif coord_state == TransactionState.ABORTED:
                         transaction.state = TransactionState.ABORTED
                     else:
-                        print("Participant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
+                        print("Participant.get_initial_state: Invalid coord_state", transaction.state, coord_state)
 
 
 class MarketParticipant:
@@ -790,7 +783,7 @@ class MarketParticipant:
 
         if (transaction.state == TransactionState.COMPLETED):
             with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-                print("Mercado dizendo que já fez a transacao", ParticipantTransaction.to_dict(transaction))
+                print("Market Participant already finished this transaction", ParticipantTransaction.to_dict(transaction))
                 coord_proxy.signal_transaction_completed(
                 transaction_id, transaction.order_id, transaction.order.type)
             return
@@ -802,14 +795,10 @@ class MarketParticipant:
                     where id = {transaction.order_id}''')
 
         transaction.state = TransactionState.COMPLETED
-        print("Mercado antes de salvar estado")
         self.save_state(transaction_id)
-        print("Mercado depois de salvar estado")
-
-        # return transaction.order_id, transaction.order.type
 
         with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-            print("Mercado dizendo que acabou com", transaction_id, transaction.order_id, transaction.order.type)
+            print("Market Participant finishing transaction", transaction_id, transaction.order_id, transaction.order.type)
             coord_proxy.signal_transaction_completed(
                 transaction_id, transaction.order_id, transaction.order.type)
 
@@ -851,4 +840,4 @@ class MarketParticipant:
                     elif coord_state == TransactionState.ABORTED:
                         transaction.state = TransactionState.ABORTED
                     else:
-                        print("MarketParticipant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
+                        print("MarketParticipant.get_initial_state: Invalid coord_state", transaction.state, coord_state)

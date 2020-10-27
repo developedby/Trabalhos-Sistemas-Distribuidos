@@ -60,6 +60,8 @@ class StockMarket:
         # self.db.execute('delete from StockTransaction')
         self.add_client("Market")
 
+        self.yahoo_lock = threading.Lock()
+
         # Registra a aplicação no Pyro
         self.daemon = pyro.Daemon()
         self.uri = self.daemon.register(self)
@@ -147,13 +149,13 @@ class StockMarket:
         #Pega todas as travas de todas as ordens
         stock_locks_already_locked = {}
         for client_name in self.stock_locks.keys():
-            for ticker in self.stock_locks[client_name].keys():
-                self.stock_locks[client_name][ticker].acquire()
-                # print(result, client_name, ticker)
-                # if not result:
-                #     if client_name not in stock_locks_already_locked:
-                #         stock_locks_already_locked[client_name] = set()
-                #     stock_locks_already_locked[client_name].add(ticker)
+            if client_name != 'Market':
+                for ticker in self.stock_locks[client_name].keys():
+                    result = self.stock_locks[client_name][ticker].acquire(blocking=False)
+                    if not result:
+                        if client_name not in stock_locks_already_locked:
+                            stock_locks_already_locked[client_name] = set()
+                        stock_locks_already_locked[client_name].add(ticker)
 
         
         active_orders = self.db.execute_with_fetch(
@@ -161,23 +163,17 @@ class StockMarket:
                     from {order_type.value} as o inner join Client as c on o.client_id = c.id
                         where o.active = 1 ''', True)
 
-        # print(stock_locks_already_locked)
-        # active_order_copy = []
-        # for data in active_orders:
-        #     if data[7] not in stock_locks_already_locked:
-        #         active_order_copy.append(data)
-        #     elif data[2] not in stock_locks_already_locked[data[7]]:
-        #         active_order_copy.append(data)
+        active_order_copy = []
+        for data in active_orders:
+            if data[7] not in stock_locks_already_locked:
+                active_order_copy.append(data)
+            elif data[2] not in stock_locks_already_locked[data[7]]:
+                active_order_copy.append(data)
 
-        # print(active_order_copy)
-        # print(active_orders)
-
-        # active_orders = active_order_copy
+        active_orders = active_order_copy
 
         #Faz um dicionário de ordens ativas por cliente, subtrai os conjuntos para descobrir quem não tem ordem ativa
         orders_by_client = {}
-        # if len(active_orders) > 0:
-        #     print(active_orders[0])
 
         for data in active_orders:
             if data[7] not in orders_by_client:
@@ -185,25 +181,25 @@ class StockMarket:
             orders_by_client[data[7]].add(data[2])
 
         client_names_with_orders = set(orders_by_client.keys())
-        # print(client_names_with_orders)
 
-        #Libera todas as travas dos clientes sem ordens ativas
-        # print("linha 166")
+        #Libera todas as travas dos clientes sem ordens ativas e sem trava
         for client_name in (all_client_names.difference(client_names_with_orders)):
-            for ticker in self.stock_locks[client_name].keys():
-                self.stock_locks[client_name][ticker].release()
-        # print("linha 170")
+            if client_name != 'Market' and client_name not in stock_locks_already_locked:
+                for ticker in self.stock_locks[client_name].keys():
+                    self.stock_locks[client_name][ticker].release()
+        
         #Libera as travas das ações sem ordem ativa
         for client_name in client_names_with_orders:
-            for ticker in self.stock_locks[client_name].keys():
-                if ticker not in orders_by_client[client_name]:
-                    self.stock_locks[client_name][ticker].release()
-        # print("linha 176")
+            if client_name != 'Market':
+                for ticker in self.stock_locks[client_name].keys():
+                    if ticker not in orders_by_client[client_name]:
+                        #print("Linha 205, liberando a trava do ", client_name, ticker)
+                        self.stock_locks[client_name][ticker].release()
+
         # Tenta executar
-        # threading.Thread(target=self.try_trade_with_market,
-        #                  args=(order_type, active_orders),
-        #                  daemon=True).start()
-        self.try_trade_with_market(order_type, active_orders)
+        threading.Thread(target=self.try_trade_with_market,
+                         args=(order_type, active_orders),
+                         daemon=True).start()
     
     def try_trade_with_market(self,
                               order_type: OrderType,
@@ -217,9 +213,7 @@ class StockMarket:
         """
         for order_entry in order_data:
             ticker = order_entry[2]
-            # print("linha 192")
             real_price = self.get_quotes([ticker])[ticker]  # Pega o preço no mercado real
-            # print("linha 194")
             order_id = order_entry[0]
             # Se a ação existe no mercado (tem um preço), tenta realizar
             if real_price is not None:
@@ -243,18 +237,14 @@ class StockMarket:
                         self.trade_with_market(order, client_id, real_price, order_id)
                 
                 #Libera a trava dessa ação
-                #print("linha 213", order_entry[7], ticker)
-
                 self.stock_locks[order_entry[7]][ticker].release()
+            
             # Se a ação não existe mais no mercado, marca como inativa
             else:
                 self.db.execute(
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
-                #Libera as travas das ação que não existe mais
-                # print("linha 222", order_entry[7], ticker)
                 self.stock_locks[order_entry[7]][ticker].release()
-
     def trade_with_internal_clients(self,
                                     order: Order,
                                     client_id: int,
@@ -503,8 +493,10 @@ class StockMarket:
     @pyro.expose
     def check_ticker_exists(self, ticker: str) -> bool:
         """retorna se uma ação existe na api."""
-        data = yf.download(ticker, period="1d")
-        return len(data) > 0
+        
+        with self.yahoo_lock:
+            data = yf.download(ticker, period="1d")
+            return len(data) > 0
 
     @pyro.expose
     def create_order(self, order: Order) -> MarketErrorCode:
@@ -555,7 +547,7 @@ class StockMarket:
 
         # Pega a trava de todas os clientes que possuem a ação
         for client_name in self.stock_locks.keys():
-            if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name:
+            if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name and client_name != 'Market':
                 self.stock_locks[client_name][order.ticker].acquire()
         
         # Pega as ordens que conseguem realizar a ordem sendo criada
@@ -579,7 +571,7 @@ class StockMarket:
         else:
             # Libera a trava de todas os clientes que possuem a ação
             for client_name in self.stock_locks.keys():
-                if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name:
+                if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name and client_name != 'Market':
                     self.stock_locks[client_name][order.ticker].release()
         # Se sobrou ações na ordem
         if order.amount > 0:
@@ -617,11 +609,12 @@ class StockMarket:
 
         # Dependendo do numero de ações para pegar cotação faz algo diferente
         # por causa da estrutura de dados que o yfinance usa
+        
         print(f"get_quotes: {len(tickers)} tickers - {tickers}")
         if len(tickers) == 0:
             return {}
-        data = yf.download(tickers, period="1d", progress=False)["Adj Close"]
-        # data = yf.download(tickers, period="1d")["Adj Close"]
+        with self.yahoo_lock:
+            data = yf.download(tickers, period="1d", progress=False)["Adj Close"]
         if len(tickers) == 1:
             quotes = {tickers[0]: round(float(data.values[0]), 2) if len(data.values) > 0 else None}
         else:
