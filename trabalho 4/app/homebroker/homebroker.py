@@ -2,13 +2,14 @@
 import datetime
 import json
 import os
+import queue
 import signal
 import sys
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Callable, List, Tuple, Optional, Any, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import flask
 import Pyro5.api as pyro
@@ -16,8 +17,9 @@ from Pyro5.errors import excepthook as pyro_excepthook
 
 from .client import Client, ClientStatus
 from .consts import DATETIME_FORMAT
-from .enums import OrderType, MarketErrorCode, HomebrokerErrorCode
+from .enums import HomebrokerErrorCode, MarketErrorCode, OrderType
 from .order import Order, Transaction
+
 
 class Homebroker:
     """
@@ -110,6 +112,7 @@ class Homebroker:
         if os.path.isfile(self.instance_path/'internal_data.json'):
             with open(self.instance_path/'internal_data.json', 'r') as fp:
                 data = json.load(fp)
+            #TODO: Verificar por que está sobrescrevendo os alertas
             self.quotes = data['quotes']
             self.alert_limits = data['alert_limits']
             self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
@@ -146,7 +149,7 @@ class Homebroker:
         print("Fechando o homebroker")
         try:
             # Fecha a conexão com os clientes
-            with self.clients_lock:
+            # with self.clients_lock:
                 for client in self.clients.values():
                     if client.status is ClientStatus.CONNECTED:
                         client.status = ClientStatus.CLOSING
@@ -154,7 +157,8 @@ class Homebroker:
                     while client.status is ClientStatus.CLOSING:
                         time.sleep(0.01)
             # Fecha a conexão com o mercado
-            with self.get_market():
+            # with self.get_market():
+                self.market._pyroClaimOwnership()
                 self.market._pyroRelease()
         finally:
             self.write_internal_data_file()
@@ -297,7 +301,7 @@ class Homebroker:
                                             self.quotes[ticker] = self.market.get_quotes([ticker])
                                     quotes.append(ticker)
 
-                    notifications_per_client[client_name][3] = owned_stock
+                    notifications_per_client[client_name][3] = self.clients[client_name].owned_stock.get()
 
             # Envia as notificações aos clientes
             for client, notification in notifications_per_client.items():
@@ -540,7 +544,13 @@ class Homebroker:
                 # Fica mandando as notificações quando elas acontecerem
                 while True:
                     # Fica esperando uma mensagem
-                    msg = self.clients[client_name].notification_queue.get()
+                    try:
+                        msg = self.clients[client_name].notification_queue.get(timeout=5)
+                    except queue.Empty:
+                        if self.clients[client_name].status is not ClientStatus.CONNECTED:
+                            break
+                        else:
+                            continue
                     # Se algum fator externo fechou o cliente enquanto esperava,
                     # coloca a mensagem de volta na fila
                     if self.clients[client_name].status is not ClientStatus.CONNECTED:

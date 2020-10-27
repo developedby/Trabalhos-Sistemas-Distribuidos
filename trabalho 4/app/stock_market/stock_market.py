@@ -65,7 +65,7 @@ class StockMarket:
         uri = self.daemon.register(self)
 
         # Carrega o Coordenador e os participantes pra cada cliente
-        self.coordinator = Coordinator(self.db)
+        self.coordinator = Coordinator(self.db, self.daemon)
         client_names = self.db.execute_with_fetch('select name from Client', True)
         orders = {}
         for client in client_names:
@@ -163,16 +163,17 @@ class StockMarket:
         # print(client_names_with_orders)
 
         #Libera todas as travas dos clientes sem ordens ativas
+        # print("linha 166")
         for client_name in (all_client_names.difference(client_names_with_orders)):
             for ticker in self.stock_locks[client_name].keys():
                 self.stock_locks[client_name][ticker].release()
-
+        # print("linha 170")
         #Libera as travas das ações sem ordem ativa
         for client_name in client_names_with_orders:
             for ticker in self.stock_locks[client_name].keys():
                 if ticker not in orders_by_client[client_name]:
                     self.stock_locks[client_name][ticker].release()
-
+        # print("linha 176")
         # Tenta executar
         self.try_trade_with_market(order_type, active_orders)
     
@@ -188,7 +189,9 @@ class StockMarket:
         """
         for order_entry in order_data:
             ticker = order_entry[2]
+            # print("linha 192")
             real_price = self.get_quotes([ticker])[ticker]  # Pega o preço no mercado real
+            # print("linha 194")
             order_id = order_entry[0]
             # Se a ação existe no mercado (tem um preço), tenta realizar
             if real_price is not None:
@@ -206,9 +209,14 @@ class StockMarket:
                 # Se tiver um preço adequado, executa a transação
                 if ((order_type == OrderType.BUY) and (real_price < order_price)
                         or ((order_type == OrderType.SELL) and (real_price > order_price))):
-                    self.trade_with_market(order, client_id, real_price, order_id)
+                    if ticker not in self.stock_locks['Market']:
+                        self.stock_locks['Market'][ticker] = threading.Lock()
+                    with self.stock_locks['Market'][ticker]:
+                        self.trade_with_market(order, client_id, real_price, order_id)
                 
                 #Libera a trava dessa ação
+                #print("linha 213", order_entry[7], ticker)
+
                 self.stock_locks[order_entry[7]][ticker].release()
             # Se a ação não existe mais no mercado, marca como inativa
             else:
@@ -216,6 +224,7 @@ class StockMarket:
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
                 #Libera as travas das ação que não existe mais
+                # print("linha 222", order_entry[7], ticker)
                 self.stock_locks[order_entry[7]][ticker].release()
 
     def trade_with_internal_clients(self,
@@ -277,7 +286,7 @@ class StockMarket:
             self.stock_locks[matching_names[matching_id]][order.ticker].release()
             order_amount -= transaction_amount
 
-        return order_amount
+        return order_amount, order_id
 
     def trade_with_market(self,
                           order: Order,
@@ -452,6 +461,8 @@ class StockMarket:
             self.participants.append(new_participant)
             self.coordinator.add_participants({new_participant.name: new_participant.uri})
             new_participant.get_initial_state()
+            self.stock_locks[client_name] = {}
+
 
         print(f"Created client {client_name}")
         return MarketErrorCode.SUCCESS
@@ -519,9 +530,10 @@ class StockMarket:
 
 
         # Se os clientes internos tem um preço melhor que o do mercado transaciona o máximo possível
+        order_id = None
         if len(matching_data) > 0:
             print("Doing transaction with internal client")
-            order.amount = self.trade_with_internal_clients(
+            order.amount, order_id = self.trade_with_internal_clients(
                 order, client_id, matching_data)
         else:
             # Libera a trava de todas os clientes que possuem a ação
@@ -534,7 +546,10 @@ class StockMarket:
             if ((order.type == OrderType.SELL and order.price <= real_price)
                     or (order.type == OrderType.BUY and order.price > real_price)):
                 print("Doing transaction with market")
-                self.trade_with_market(order, client_id, real_price)
+                if order.ticker not in self.stock_locks['Market']:
+                    self.stock_locks['Market'][order.ticker] = threading.Lock()
+                with self.stock_locks['Market'][order.ticker]:
+                    self.trade_with_market(order, client_id, real_price, order_id)
             # Caso contrario, guarda o que sobrou da ordem no DB
             else:
                 print("Creating order")

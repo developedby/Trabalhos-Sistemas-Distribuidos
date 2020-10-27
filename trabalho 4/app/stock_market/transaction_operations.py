@@ -29,6 +29,7 @@ class ParticipantTransaction:
     :param price: Preço a ser negociado
     :param order_id: Id da ordem a ser executada
     :param state: Estado atual da transação
+    :param owned_stock_amount: Quantidade de ações possuídas depois que a ação é transacionada
     """
 
     def __init__(self,
@@ -38,6 +39,7 @@ class ParticipantTransaction:
                  price: float,
                  order_id: int,
                  state: Optional[TransactionState] = TransactionState.ACTIVE,
+                 owned_stock_amount: Optional[float] = None,
                  **kwargs):
         self.id = id
         self.order = order
@@ -45,6 +47,7 @@ class ParticipantTransaction:
         self.price = price
         self.order_id = order_id
         self.state = state
+        self.owned_stock_amount = owned_stock_amount
 
     @staticmethod
     def to_dict(transaction: 'ParticipantTransaction') -> Dict[str, Any]:
@@ -56,7 +59,8 @@ class ParticipantTransaction:
             'amount': transaction.amount,
             'price': transaction.price,
             'order_id': transaction.order_id,
-            'state': transaction.state.value
+            'state': transaction.state.value,
+            'owned_stock_amount': transaction.owned_stock_amount
         }
 
     @staticmethod
@@ -68,7 +72,8 @@ class ParticipantTransaction:
             dict_['amount'],
             dict_['price'],
             dict_['order_id'],
-            TransactionState(dict_['state'])
+            TransactionState(dict_['state']),
+            dict_['owned_stock_amount']
         )
 
 
@@ -149,13 +154,13 @@ class Coordinator:
     :param db: banco de dados usado para salvar os dados finais
     """
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, daemon: Pyro5.api.Daemon):
+        #TODO: Descobrir por que não consigo acessar os métodos
         self.transaction_operations: Dict[int, CoordinatorTransaction] = {}
         self.participants: Dict[str, Pyro5.core.URI] = {}
         
         sys.excepthook = Pyro5.errors.excepthook
-        self.daemon = Pyro5.api.Daemon()
-        self.uri = self.daemon.register(self)
+        self.uri = daemon.register(self)
 
         self.path = Path(f'./app/stock_market/coordinator')
         
@@ -180,7 +185,7 @@ class Coordinator:
         with open(file_path, 'a') as fp:
             fp.write(json.dumps({
                 'transaction_operations': transactions
-            }))
+            }, indent=2))
 
         self.save_temporary_state()
 
@@ -269,7 +274,7 @@ class Coordinator:
 
         :param transaction_id: id da transação a ser procurada
         """
-
+        print("Chamou get_transaction_state")
         if transaction_id in self.transaction_operations:
             return self.transaction_operations[transaction_id].state
         return TransactionState.ABORTED
@@ -432,7 +437,6 @@ class Participant:
         self.db = db
 
         self.transactions: Dict[int, ParticipantTransaction] = {}
-        self.temporary_own_stock: Dict[str, float] = {}
 
         self.path = Path(f'./app/stock_market/participants/{self.name}')
 
@@ -443,9 +447,8 @@ class Participant:
         transactions = [ParticipantTransaction.to_dict(t) for t in self.transactions.values()]
         with open(file_path, 'a') as fp:
             fp.write(json.dumps({
-                'transactions': transactions,
-                'temporary_own_stock': self.temporary_own_stock
-            }))
+                'transactions': transactions
+            }, indent=2))
 
         self.save_temporary_state()
 
@@ -457,8 +460,7 @@ class Participant:
         
         with open(file_path, 'w') as fp:
             fp.write(json.dumps({
-                'transactions': transactions,
-                'temporary_own_stock': self.temporary_own_stock
+                'transactions': transactions
             }))
 
     @Pyro5.api.expose
@@ -490,15 +492,15 @@ class Participant:
         owned_stock = self.db.get_stock_owned_by_client(self.name)
         if (transaction.order.ticker in owned_stock):
             if (transaction.order.type == OrderType.BUY):
-                self.temporary_own_stock[transaction.order.ticker] = owned_stock[transaction.order.ticker] + transaction.amount
+                transaction.owned_stock_amount = owned_stock[transaction.order.ticker] + transaction.amount
             else:
                 if owned_stock[transaction.order.ticker] >= transaction.amount:
-                    self.temporary_own_stock[transaction.order.ticker] = owned_stock[transaction.order.ticker] - transaction.amount
+                    transaction.owned_stock_amount = owned_stock[transaction.order.ticker] - transaction.amount
                 else:
                     transaction.state = TransactionState.FAILED
         else:
             if (transaction.order.type == OrderType.BUY):
-                self.temporary_own_stock[transaction.order.ticker] = transaction.amount
+                transaction.owned_stock_amount = transaction.amount
             else:
                 transaction.state = TransactionState.FAILED
         
@@ -557,9 +559,10 @@ class Participant:
                         (select id from Client where name = '{transaction.order.client_name}'),
                         0
                     )''')
-
-        self.update_owned_stock(transaction.order.ticker)
-        self.temporary_own_stock.pop(transaction.order.ticker)
+        if (transaction.owned_stock_amount is not None):
+            self.update_owned_stock(transaction.order.ticker, transaction.owned_stock_amount)
+        else:
+            print("Participant.commit_transaction: owned_stock_amount not setted")
         
         transaction.state = TransactionState.COMPLETED
 
@@ -572,14 +575,14 @@ class Participant:
         #         transaction_id, new_id, transaction.order.type)
 
 
-    def update_owned_stock(self, ticker: str):
+    def update_owned_stock(self, ticker: str, current_stock_amount: float):
         """
         Atualiza ou insere uma quantidade de ações para um cliente.
         
         :param ticker: Nome da ação.
+        :param current_stock_amount: Quantidade atual de ações da ação ticker.
         """
         # Pega o id da entrada no db, para a quantidade que o cliente tem daquela ação
-        current_stock_amount = self.temporary_own_stock[ticker]
         id_owned_stock = self.db.execute_with_fetch(
             f'''select id from OwnedStock 
                     where ticker = '{ticker}' and
@@ -606,7 +609,6 @@ class Participant:
         """
 
         if transaction_id in self.transactions:
-            self.temporary_own_stock.pop(self.transactions[transaction_id].order.ticker)
             self.transactions[transaction_id].state = TransactionState.ABORTED
             self.save_state()
 
@@ -620,7 +622,6 @@ class Participant:
             if (os.path.isfile(file_path)):
                 with open(file_path, 'r+') as fp:
                     data = json.loads(fp.read())
-                self.temporary_own_stock = data['temporary_own_stock']
                 self.transactions = {
                     t['id']: ParticipantTransaction.from_dict('', t)
                     for t in data['transactions']}
@@ -631,6 +632,7 @@ class Participant:
                         # Se é uma transação que tinha que executar
                         # Ve se precisa começar de novo ou pode desistir
                         if transaction.state == TransactionState.ACTIVE:
+                            print("Chamando get_transaction_state")
                             coord_state = coord_proxy.get_transaction_state()
                             if coord_state == TransactionState.ACTIVE:
                                 self.prepare_transaction(transaction)
@@ -641,6 +643,7 @@ class Participant:
                         # Se é uma transação que terminou e tava esperando
                         # Ve se pode commitar ou se joga fora
                         elif transaction.state == TransactionState.PENDING:
+                            print("Chamando get_transaction_state")
                             coord_state = coord_proxy.get_transaction_state()
                             if coord_state == TransactionState.ACTIVE:
                                 pass
@@ -675,7 +678,7 @@ class MarketParticipant:
         with open(file_path, 'a') as fp:
             fp.write(json.dumps({
                 'transactions': transactions
-            }))
+            }, indent=2))
 
         self.save_temporary_state()
 
@@ -729,6 +732,8 @@ class MarketParticipant:
                 f'''update {transaction.order.type.value}
                     set active = 0 
                     where id = {transaction.order_id}''')
+
+        transaction.state = TransactionState.COMPLETED
         self.save_state()
 
         return transaction.order_id, transaction.order.type
@@ -768,6 +773,7 @@ class MarketParticipant:
                     # Pra cada transação no log
                     for tid, transaction in self.transactions.items():
                         if transaction.state == TransactionState.PENDING:
+                            print("Chamando get_transaction_state")
                             coord_state = coord_proxy.get_transaction_state()
                             if coord_state == TransactionState.ACTIVE:
                                 pass
