@@ -61,6 +61,7 @@ class Client:
                         'owned_stock': owned_stock}))
 
     def to_json(self) -> str:
+        """Retorna uma representação JSON do objeto."""
         return json.dumps({
             'client_name': self.name,
             'quotes': self.quotes.get(),
@@ -70,6 +71,7 @@ class Client:
 
     @staticmethod
     def from_json(json_data: str) -> 'Client':
+        """Retorna um Client novo com as informações de `json_data`."""
         data = json.loads(json_data)
         new_client = Client(data['client_name'])
         new_client.quotes.set(data['quotes'])
@@ -79,9 +81,11 @@ class Client:
 
     @staticmethod
     def from_file(file_path: Union[str, Path]) -> 'Client':
+        """Le o arquivo dado e constroi um Client interpretando o arquivo como JSON."""
         with open(file_path, 'r') as f:
             return Client.from_json(f.read())
 
     def to_file(self, clients_dir: Path):
+        """Salva o objeto como arquivo JSON com nome `{name}.json` na pasta dada."""
         with open(clients_dir/f'{self.name}.json', 'w') as dest_file:
             dest_file.write(self.to_json())
