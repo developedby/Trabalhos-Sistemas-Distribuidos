@@ -62,15 +62,27 @@ class StockMarket:
 
         # Registra a aplicação no Pyro
         self.daemon = pyro.Daemon()
-        uri = self.daemon.register(self)
+        self.uri = self.daemon.register(self)
 
+        threading.Thread(target=self.load_initial_participants,
+                         args=(nameserver,),
+                         daemon=True).start()
+        try:
+            self.daemon.requestLoop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.close()
+
+    def load_initial_participants(self, nameserver):
+        nameserver._pyroClaimOwnership()
         # Carrega o Coordenador e os participantes pra cada cliente
         self.coordinator = Coordinator(self.db, self.daemon)
         client_names = self.db.execute_with_fetch('select name from Client', True)
         orders = {}
         for client in client_names:
             orders[client[0]] = self.get_client_orders_by_name(client[0], True)
-
+        
         self.stock_locks: Dict[str, Dict[str, threading.Lock]] = {}
         self.participants = []
         for client_name in client_names:
@@ -95,18 +107,11 @@ class StockMarket:
             participant.get_initial_state()
 
         # Registra no nameserver
-        nameserver.register('stockmarket', uri)
+        nameserver.register('stockmarket', self.uri)
         nameserver._pyroRelease()
 
-        # Começa a rodar
-        self.running = True
+        # Avisa que esta disponível para o exterior
         print("Rodando Stock Market")
-        try:
-            self.daemon.requestLoop()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.close()
 
     def close(self):
         """Termina o aplicativo. Chamado após fechar a GUI e o Pyro."""
@@ -280,8 +285,11 @@ class StockMarket:
             else:
                 sell_order_id = order_id
                 buy_order_id = matching_id
-            self.coordinator.open_transaction(buy_order_id, sell_order_id, transaction_amount, price)
+            tid = self.coordinator.open_transaction(buy_order_id, sell_order_id, transaction_amount, price)
 
+            while(not self.coordinator.is_transaction_finished(tid)):
+                time.sleep(0.01)
+            
             #Libera a trava do cliente que transacionou
             self.stock_locks[matching_names[matching_id]][order.ticker].release()
             order_amount -= transaction_amount
@@ -343,7 +351,9 @@ class StockMarket:
             sell_order_id = own_order_id
             buy_order_id = new_matching_id
 
-        self.coordinator.open_transaction(buy_order_id, sell_order_id, order.amount, real_price)
+        tid = self.coordinator.open_transaction(buy_order_id, sell_order_id, order.amount, real_price)
+        while(not self.coordinator.is_transaction_finished(tid)):
+                time.sleep(0.01)
 
     def client_has_stock(self,
                          client_id: int,
@@ -507,6 +517,14 @@ class StockMarket:
             print("Ticker not found in the market")
             return MarketErrorCode.UNKNOWN_TICKER
 
+        threading.Thread(target=self.try_execute_new_order,
+                         args=(client_id, order, real_price),
+                         daemon=True).start()
+
+        return MarketErrorCode.SUCCESS
+
+    def try_execute_new_order(self, client_id: int, order: Order, real_price: float):
+
         # Calcula o preço com que quer realizar a transação
         # É sempre o máximo entre a ordem criada e o preço do mercado real
         # O maximo foi escolhido para permitir transações tanto com internos quanto com o mercado
@@ -566,8 +584,7 @@ class StockMarket:
 
         #Libera a trava do cliente principal
         self.stock_locks[order.client_name][order.ticker].release()
-        return MarketErrorCode.SUCCESS
-
+        
     @pyro.expose
     def get_quotes(self, tickers: Sequence[str]) -> Dict[str, Optional[float]]:
         """Retorna a cotação atual de um conjunto de ações."""
@@ -580,7 +597,8 @@ class StockMarket:
         print(f"get_quotes: {len(tickers)} tickers - {tickers}")
         if len(tickers) == 0:
             return {}
-        data = yf.download(tickers, period="1d")["Adj Close"]
+        data = yf.download(tickers, period="1d", progress=False)["Adj Close"]
+        # data = yf.download(tickers, period="1d")["Adj Close"]
         if len(tickers) == 1:
             quotes = {tickers[0]: round(float(data.values[0]), 2) if len(data.values) > 0 else None}
         else:

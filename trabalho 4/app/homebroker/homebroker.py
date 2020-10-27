@@ -108,18 +108,14 @@ class Homebroker:
         for file_name in client_files:
             new_client = Client.from_file(clients_path/file_name)
             self.clients[new_client.name] = new_client
-            print("cliente do arquivo com nome", new_client.name)
 
         # Carrega as outras informações
         if os.path.isfile(self.instance_path/'internal_data.json'):
-            print("possui arquivo")
             with open(self.instance_path/'internal_data.json', 'r') as fp:
                 data = json.load(fp)
             #TODO: Verificar por que está sobrescrevendo os alertas
-            print("data:",data['quotes'], data['alert_limits'], data['last_updated'])
             self.quotes = data['quotes']
             self.alert_limits = data['alert_limits']
-            print(self.alert_limits)
             self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
 
     def write_internal_data_file(self):
@@ -210,7 +206,7 @@ class Homebroker:
                 self.quotes = self.market.get_quotes(self.quotes.keys())
             # Pega uma cópia porque essa funcao pode ser chamada de varios lugares ao mesmo tempo
             quotes_copy = self.quotes.copy()
-
+        quotes_copy = {ticker: value for ticker, value in quotes_copy.items() if value is not None}
         # Envia os alertas de limite de preço para os clientes, caso haja
         alerts_to_remove = []
         for ticker in quotes_copy:
@@ -303,7 +299,9 @@ class Homebroker:
                                 if ticker not in quotes:
                                     with self.quotes_lock:
                                         with self.get_market():
-                                            self.quotes[ticker] = self.market.get_quotes([ticker])
+                                            price = self.market.get_quotes([ticker])
+                                            if (price is not None):
+                                                self.quotes[ticker] = price
                                     quotes.append(ticker)
 
                     notifications_per_client[client_name][3] = self.clients[client_name].owned_stock.get()
@@ -370,8 +368,10 @@ class Homebroker:
                 quotes.append(ticker)
 
         # Pega o valor da ação (atualiza todo mundo)
+        with self.get_market():
+            value = self.market.get_quotes([ticker])
         with self.quotes_lock:
-            self.quotes[ticker] = None
+                self.quotes[ticker] = value
         self.update_quotes()
 
         return str(HomebrokerErrorCode.SUCCESS), 200
