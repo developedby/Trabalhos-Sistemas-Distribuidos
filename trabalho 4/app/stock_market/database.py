@@ -11,21 +11,22 @@ class Database:
         self.db_cursor = self.db.cursor()
         self.db_lock = threading.Lock()
 
-    def execute(self, command: str, *args, **kwargs) -> sqlite3.Cursor:
+    def execute(self, command: str, *args, **kwargs) -> int:
         """Executa uma operação no DB."""
         with self.db_lock:
             cursor =  self.db_cursor.execute(command, *args, **kwargs)
             self.db.commit()
-            return cursor
+            return cursor.lastrowid
 
     def close(self):
         self.db.close()
 
     def get_order_from_id(self, order_id: int, order_type: OrderType) -> Order:
-        data = self.execute(
+        data = self.execute_with_fetch(
             f'''select c.name, o.ticker, o.amount, o.price, o.expiry_date, o.active 
                 from {order_type.value} as o inner join client as c on o.client_id = c.id 
-                    where o.id = {order_id}''').fetchone()
+                    where o.id = {order_id}''', False)
+        
         return Order(data[0], order_type, data[1], data[2], data[3], data[4], data[5])
 
     def get_stock_owned_by_client(self, client_name: str) -> Dict[str, float]:
@@ -34,5 +35,13 @@ class Database:
             select ticker, amount from OwnedStock
             where client_id = (select id from Client where name = '{client_name}')
         """
-        data = self.execute(command).fetchall()
+        data = self.execute_with_fetch(command, True)
         return {entry[0]: entry[1] for entry in data}
+
+    def execute_with_fetch(self, command: str, fetch_all: bool, *args, **kwargs):
+        """Executa uma operação no DB."""
+        # print('execute_with_fetch:',command)
+        with self.db_lock:
+            cursor =  self.db_cursor.execute(command, *args, **kwargs)
+            self.db.commit()
+            return cursor.fetchall() if fetch_all else cursor.fetchone()

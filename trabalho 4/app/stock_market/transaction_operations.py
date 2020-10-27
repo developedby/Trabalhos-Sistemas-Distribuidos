@@ -228,23 +228,17 @@ class Coordinator:
         else:
             transaction_id = tid
 
-        print("Inicio open_transaction")
-
         buy_order = self.db.get_order_from_id(buy_order_id, OrderType.BUY)
         sell_order = self.db.get_order_from_id(sell_order_id, OrderType.SELL)
         
-        print("Obtive as ordens")
         buyer_uri = self.participants[buy_order.client_name]
         seller_uri = self.participants[sell_order.client_name]
-
-        print("Obtive as uris")
 
         buy_transaction = ParticipantTransaction(
             transaction_id, buy_order, amount, price, buy_order_id)
         sell_transaction = ParticipantTransaction(
             transaction_id, sell_order, amount, price, sell_order_id)
 
-        print("Criei as transações")
         self.transaction_operations[transaction_id] = CoordinatorTransaction(
             transaction_id,
             buy_order_id,
@@ -253,15 +247,12 @@ class Coordinator:
             price,
             [buy_order.client_name, sell_order.client_name])
         
-        print("Salvando estado temporario")
         self.save_temporary_state()
 
         with Pyro5.api.Proxy(buyer_uri) as buyer_proxy :
             buyer_proxy.prepare_transaction(buy_transaction)
         with Pyro5.api.Proxy(seller_uri) as seller_proxy :
             seller_proxy.prepare_transaction(sell_transaction)
-
-        print("Requisitei preparação das transações")
         
         #TODO: pegar as travas
 
@@ -554,9 +545,9 @@ class Participant:
         else:
             self.db.execute(
                 f'''update {transaction.order.type.value}
-                    set amount = {transaction.order.amount - transaction.amount}
+                    set amount = {transaction.order.amount}
                     where id = {transaction.order_id}''')
-            cursor = self.db.execute(
+            new_id = self.db.execute(
                 f'''insert into {transaction.order.type.value} (ticker, amount, price, expiry_date, client_id, active)
                     values (
                         '{transaction.order.ticker}',
@@ -566,7 +557,6 @@ class Participant:
                         (select id from Client where name = '{transaction.order.client_name}'),
                         0
                     )''')
-            new_id = cursor.lastrowid
 
         self.update_owned_stock(transaction.order.ticker)
         self.temporary_own_stock.pop(transaction.order.ticker)
@@ -590,10 +580,10 @@ class Participant:
         """
         # Pega o id da entrada no db, para a quantidade que o cliente tem daquela ação
         current_stock_amount = self.temporary_own_stock[ticker]
-        id_owned_stock = self.db.execute(
+        id_owned_stock = self.db.execute_with_fetch(
             f'''select id from OwnedStock 
                     where ticker = '{ticker}' and
-                    client_id = (select id from Client where name = '{self.name}')''').fetchone()
+                    client_id = (select id from Client where name = '{self.name}')''', False)
 
         # Se tem a ação, atualiza a quantidade
         if id_owned_stock:

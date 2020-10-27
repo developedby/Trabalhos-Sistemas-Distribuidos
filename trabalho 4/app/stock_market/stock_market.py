@@ -7,8 +7,10 @@ import os
 import sqlite3
 import sys
 import threading
+from threading import Lock
 import time
 from typing import Dict, List, Mapping, Sequence, Optional, Iterable
+from Pyro5 import client
 
 #os.environ["PYRO_LOGFILE"] = "stockmarket.log"
 #os.environ["PYRO_LOGLEVEL"] = "DEBUG"
@@ -64,11 +66,21 @@ class StockMarket:
 
         # Carrega o Coordenador e os participantes pra cada cliente
         self.coordinator = Coordinator(self.db)
-        client_names = self.db.execute('select name from Client').fetchall()
-        self.participants = [
-            Participant(client_name[0], self.coordinator.uri, self.db, self.daemon)
-            for client_name in client_names if client_name[0] != 'Market'
-        ]
+        client_names = self.db.execute_with_fetch('select name from Client', True)
+        orders = {}
+        for client in client_names:
+            orders[client[0]] = self.get_client_orders_by_name(client[0], True)
+
+        self.stock_locks: Dict[str, Dict[str, threading.Lock]] = {}
+        self.participants = []
+        for client_name in client_names:
+            self.stock_locks[client_name[0]] = {}
+            for order in orders[client_name[0]]:
+                if order.ticker not in self.stock_locks[client_name[0]]:
+                    self.stock_locks[client_name[0]][order.ticker] = threading.Lock()
+            if client_name[0] != 'Market':
+                self.participants.append(Participant(client_name[0], self.coordinator.uri, self.db, self.daemon))
+        
         self.market_participant = MarketParticipant(self.coordinator.uri, self.db, self.daemon)
         self.coordinator.add_participants({
             participant.name: participant.uri
@@ -81,8 +93,6 @@ class StockMarket:
         self.market_participant.get_initial_state()
         for participant in self.participants:
             participant.get_initial_state()
-
-        
 
         # Registra no nameserver
         nameserver.register('stockmarket', uri)
@@ -115,26 +125,56 @@ class StockMarket:
                 where active = 1 and 
                 datetime(expiry_date)
                     < datetime('{datetime.datetime.now().strftime(DATETIME_FORMAT)}')""")
-
-    def try_execute_active_orders(self):
+    
+    def try_execute_active_orders(self, order_type: OrderType):
         '''
-        Tenta executar todas as ordens ativas.
+        Tenta executar todas as ordens ativas do tipo order_type.
         Como transações entre clientes internos sempre ocorrem no momento de criação das ordens,
         troca só com o mercado real.
         '''
+
+        all_client_names = set(self.stock_locks.keys())
+        
         # Verifica se tem alguma ordem expirada
         # pra não executar uma transação que não deveria ocorrer
         self.mark_expired_orders_as_inactive()
-        active_buy_orders = self.db.execute(
-            ''' select * from BuyOrder 
-                    where active = 1 ''').fetchall()
 
-        active_sell_orders = self.db.execute(
-            ''' select * from SellOrder 
-                    where active = 1 ''').fetchall()
-        # Tenta executa
-        self.try_trade_with_market(OrderType.BUY, active_buy_orders)
-        self.try_trade_with_market(OrderType.SELL, active_sell_orders)
+        #Pega todas as travas de todas as ordens
+        for client_name in self.stock_locks.keys():
+            for ticker in self.stock_locks[client_name].keys():
+                self.stock_locks[client_name][ticker].acquire()
+        
+        active_orders = self.db.execute_with_fetch(
+            f''' select o.*, c.name 
+                    from {order_type.value} as o inner join Client as c on o.client_id = c.id
+                        where o.active = 1 ''', True)
+
+        #Faz um dicionário de ordens ativas por cliente, subtrai os conjuntos para descobrir quem não tem ordem ativa
+        orders_by_client = {}
+        # if len(active_orders) > 0:
+        #     print(active_orders[0])
+
+        for data in active_orders:
+            if data[7] not in orders_by_client:
+                orders_by_client[data[7]] = set()    
+            orders_by_client[data[7]].add(data[2])
+
+        client_names_with_orders = set(orders_by_client.keys())
+        # print(client_names_with_orders)
+
+        #Libera todas as travas dos clientes sem ordens ativas
+        for client_name in (all_client_names.difference(client_names_with_orders)):
+            for ticker in self.stock_locks[client_name].keys():
+                self.stock_locks[client_name][ticker].release()
+
+        #Libera as travas das ações sem ordem ativa
+        for client_name in client_names_with_orders:
+            for ticker in self.stock_locks[client_name].keys():
+                if ticker not in orders_by_client[client_name]:
+                    self.stock_locks[client_name][ticker].release()
+
+        # Tenta executar
+        self.try_trade_with_market(order_type, active_orders)
     
     def try_trade_with_market(self,
                               order_type: OrderType,
@@ -167,11 +207,16 @@ class StockMarket:
                 if ((order_type == OrderType.BUY) and (real_price < order_price)
                         or ((order_type == OrderType.SELL) and (real_price > order_price))):
                     self.trade_with_market(order, client_id, real_price, order_id)
+                
+                #Libera a trava dessa ação
+                self.stock_locks[order_entry[7]][ticker].release()
             # Se a ação não existe mais no mercado, marca como inativa
             else:
                 self.db.execute(
                     f''' update {order_type.value} set active = 0 
                         where id = {order_id}''')
+                #Libera as travas das ação que não existe mais
+                self.stock_locks[order_entry[7]][ticker].release()
 
     def trade_with_internal_clients(self,
                                     order: Order,
@@ -189,24 +234,30 @@ class StockMarket:
         '''
 
         # Coloca a ordem que quer realizar no DB
-        cursor = self.db.execute(
+        order_id = self.db.execute(
             f'''insert into {order.type.value} (ticker, amount, price, expiry_date, client_id, active)
                 values (
                     '{order.ticker}', {order.amount}, {order.price}, '{order.expiry_date}', 
                     {client_id}, 1
                 )''')
-        order_id = cursor.lastrowid
 
-        matching_type = order.type.get_matching()
         # Pega a quantidade de ações para serem transacionadas
         amount = 0
         matching_ids = []  # Ids dos clientes com quem pode transacionar
+        matching_names = {} #Nome dos clientes com quem pode transacionar
         order_amount = order.amount
         for matching_order in matching_data:
             amount += matching_order[3]
             matching_ids.append(matching_order[0])
+            matching_names[matching_order[0]] = matching_order[7]
             if (amount >= order_amount):
                 break
+        
+        #Libera a trava dos clientes que não vão fazer transação
+        for client_name in self.stock_locks.keys():
+            if order.ticker in self.stock_locks[client_name].keys():
+                if client_name not in matching_names.values() and client_name != order.client_name:
+                    self.stock_locks[client_name][order.ticker].release()
 
         # Executa transações com os clientes dados
         for i, matching_id in enumerate(matching_ids):
@@ -221,6 +272,9 @@ class StockMarket:
                 sell_order_id = order_id
                 buy_order_id = matching_id
             self.coordinator.open_transaction(buy_order_id, sell_order_id, transaction_amount, price)
+
+            #Libera a trava do cliente que transacionou
+            self.stock_locks[matching_names[matching_id]][order.ticker].release()
             order_amount -= transaction_amount
 
         return order_amount
@@ -254,9 +308,7 @@ class StockMarket:
                         {client_id},
                         1
                     )''')
-            cursor = self.db.execute(command)
-            cursor.fetchone()
-            own_order_id = cursor.lastrowid
+            own_order_id = self.db.execute(command)
         else:
             own_order_id = order_id
 
@@ -273,8 +325,7 @@ class StockMarket:
                 (select id from Client where name = 'Market'),
                 1
             )''')
-        cursor = self.db.execute(command)
-        new_matching_id = cursor.lastrowid
+        new_matching_id = self.db.execute(command)
 
         if order.type == OrderType.BUY:
                 buy_order_id = own_order_id
@@ -294,12 +345,12 @@ class StockMarket:
         Se `amount` foi dado, verifica se tem pelo menos a quantidade dada.
         """
         # Pega os dados do DB
-        data = self.db.execute(
+        data = self.db.execute_with_fetch(
             f'''select os.* from Client as c 
                 inner join OwnedStock as os on c.id = os.client_id 
                     where os.ticker = '{ticker}' and 
-                    c.id = {client_id} '''
-        ).fetchone()
+                    c.id = {client_id} ''', False
+        )
 
         # Se não tem a ação
         if not data:
@@ -321,10 +372,10 @@ class StockMarket:
         Retorna um dicionario com os ids de cada nome dado.
         Se o nome não existe, tem valor None.
         """
-        data = self.db.execute(
+        data = self.db.execute_with_fetch(
             f'''select id, name from Client 
-                where name in {f"('{client_names[0]}')" if (len(client_names) == 1) else tuple(client_names)} '''
-        ).fetchall()
+                where name in {f"('{client_names[0]}')" if (len(client_names) == 1) else tuple(client_names)} ''', True
+        )
 
         id_map = {name: None for name in client_names}
         for entry in data:
@@ -342,13 +393,13 @@ class StockMarket:
         :param active_only: Se retorna só as ordens ativas, ou se retorna todas.
         """
         orders = []
-        buy_data = self.db.execute(
+        buy_data = self.db.execute_with_fetch(
             f'''select * from BuyOrder
                 where 
                     client_id = (
                         select id from Client where name = '{client_name}'
                     )
-                    {'and active = 1' if active_only else ""} '''
+                    {'and active = 1' if active_only else ""} ''', True
         )
         for order in buy_data:
             orders.append(Order(
@@ -361,13 +412,13 @@ class StockMarket:
                     active=bool(order[6])
             ))
 
-        sell_data = self.db.execute(
+        sell_data = self.db.execute_with_fetch(
             f'''select * from SellOrder
                 where 
                     client_id = (
                         select id from Client where name = '{client_name}'
                     )
-                    {'and active = 1' if active_only else ""} '''
+                    {'and active = 1' if active_only else ""} ''', True
         )
         for order in sell_data:
             orders.append(Order(
@@ -428,6 +479,11 @@ class StockMarket:
         # Atualiza o estado de expiração das ordens
         self.mark_expired_orders_as_inactive()
 
+        if not order.ticker in self.stock_locks[order.client_name].keys():
+            self.stock_locks[order.client_name][order.ticker] = threading.Lock()
+
+        #Pega a trava para a ordem desse cliente
+        self.stock_locks[order.client_name][order.ticker].acquire()
         # Se quer vender, checa se tem ações o suficiente
         if order.type == OrderType.SELL:
             if not self.client_has_stock(client_id, order.ticker, amount=order.amount):
@@ -445,21 +501,33 @@ class StockMarket:
         # O maximo foi escolhido para permitir transações tanto com internos quanto com o mercado
         target_price = max(order.price, real_price)
 
+        # Pega a trava de todas os clientes que possuem a ação
+        for client_name in self.stock_locks.keys():
+            if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name:
+                self.stock_locks[client_name][order.ticker].acquire()
+        
         # Pega as ordens que conseguem realizar a ordem sendo criada
         matching_type = order.type.get_matching()
         command = (
-            f'''select * from {matching_type.value} 
-            where ticker = '{order.ticker}' 
-                and price {'>=' if order.type == OrderType.SELL else '<='} {target_price} 
-                and active = 1
-            order by price {'desc' if order.type == OrderType.SELL else 'asc'}''')
-        matching_data = self.db.execute(command).fetchall()
-        
+            f'''select o.*, c.name 
+                from {matching_type.value} as o inner join Client as c on o.client_id = c.id
+                    where o.ticker = '{order.ticker}' 
+                        and o.price {'>=' if order.type == OrderType.SELL else '<='} {target_price} 
+                        and o.active = 1
+                order by o.price {'desc' if order.type == OrderType.SELL else 'asc'}''')
+        matching_data = self.db.execute_with_fetch(command, True)
+
+
         # Se os clientes internos tem um preço melhor que o do mercado transaciona o máximo possível
         if len(matching_data) > 0:
             print("Doing transaction with internal client")
             order.amount = self.trade_with_internal_clients(
                 order, client_id, matching_data)
+        else:
+            # Libera a trava de todas os clientes que possuem a ação
+            for client_name in self.stock_locks.keys():
+                if order.ticker in self.stock_locks[client_name].keys() and client_name != order.client_name:
+                    self.stock_locks[client_name][order.ticker].release()
         # Se sobrou ações na ordem
         if order.amount > 0:
             # Troca com o mercado caso tenha um preço que realize a ordem
@@ -480,6 +548,9 @@ class StockMarket:
                             '{order.expiry_date}', 
                             {client_id},
                             1)''')
+
+        #Libera a trava do cliente principal
+        self.stock_locks[order.client_name][order.ticker].release()
         return MarketErrorCode.SUCCESS
 
     @pyro.expose
@@ -498,14 +569,11 @@ class StockMarket:
         if len(tickers) == 1:
             quotes = {tickers[0]: round(float(data.values[0]), 2) if len(data.values) > 0 else None}
         else:
-            print(1, data)
             quotes: Dict[str, Optional[float]] = {ticker: None for ticker in tickers}
             for ticker in quotes:
                 quote = data.loc[:, ticker.upper()].values[0]
-                print(2, quote)
                 if not math.isnan(quote):
                     quotes[ticker] = round(float(quote), 2)
-                    print(3, quotes)
         return quotes
 
     @pyro.expose
@@ -518,7 +586,8 @@ class StockMarket:
         :param client_names: Nome dos clientes.
         :param active_only: Se retorna só as ordens ativas, ou todas.
         """
-        self.try_execute_active_orders()
+        self.try_execute_active_orders(OrderType.BUY)
+        self.try_execute_active_orders(OrderType.SELL)
         orders = {}
         for client in client_names:
             orders[client] = self.get_client_orders_by_name(client, active_only)
@@ -553,12 +622,11 @@ class StockMarket:
             (f"and datetime(t.datetime) >= datetime('{from_date}')"
                 if from_date is not None else '')
         )
-        data = self.db.execute(command)
+        data = self.db.execute_with_fetch(command, True)
 
         # Transforma em um formato mais amigavel, separando por cliente
         transactions = {client: [] for client in client_names}
         for entry in data:
-            print(entry[5], from_date)
             if entry[1] in ids:
                 transactions[client_id_to_name[entry[1]]].append(Transaction(
                     ticker=entry[0],
