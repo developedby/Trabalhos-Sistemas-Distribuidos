@@ -76,7 +76,7 @@ class Client:
         new_client = Client(data['client_name'])
         new_client.quotes.set(data['quotes'])
         new_client.owned_stock.set(data['owned_stock'])
-        new_client.orders.set(Order.from_dict('', data['orders']))
+        new_client.orders.set([Order.from_dict('', order) for order in data['orders']])
         return new_client
 
     @staticmethod

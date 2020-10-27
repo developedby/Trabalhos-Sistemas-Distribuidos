@@ -37,8 +37,6 @@ class Homebroker:
     def __init__(self, name: str, update_period: float):
         self.name = name
         self.update_period = update_period
-        # Carrega as informações internas do homebroker
-        self.load_initial_state()
 
         # Para as exceções remotas do Pyro aparecerem em um formato melhor
         sys.excepthook = pyro_excepthook
@@ -68,6 +66,9 @@ class Homebroker:
         self.alerts_lock = threading.Lock()
 
         self.last_updated = datetime.datetime.now()
+
+        # Carrega as informações internas do homebroker
+        self.load_initial_state()
 
         # Registra o objeto no daemon do Pyro e no nameserver
         self.daemon = pyro.Daemon()
@@ -107,14 +108,18 @@ class Homebroker:
         for file_name in client_files:
             new_client = Client.from_file(clients_path/file_name)
             self.clients[new_client.name] = new_client
+            print("cliente do arquivo com nome", new_client.name)
 
         # Carrega as outras informações
         if os.path.isfile(self.instance_path/'internal_data.json'):
+            print("possui arquivo")
             with open(self.instance_path/'internal_data.json', 'r') as fp:
                 data = json.load(fp)
             #TODO: Verificar por que está sobrescrevendo os alertas
+            print("data:",data['quotes'], data['alert_limits'], data['last_updated'])
             self.quotes = data['quotes']
             self.alert_limits = data['alert_limits']
+            print(self.alert_limits)
             self.last_updated = datetime.datetime.strptime(data['last_updated'], DATETIME_FORMAT)
 
     def write_internal_data_file(self):
@@ -311,7 +316,7 @@ class Homebroker:
 
         # Guarda as alterações em um arquivo
         for client in self.clients.values():
-            client.to_file(self.instance_path)
+            client.to_file(self.instance_path / 'clients')
         self.write_internal_data_file()
 
     @staticmethod
@@ -518,7 +523,8 @@ class Homebroker:
         # Caso cliente novo, cria e manda pro mercado
         else:
             with self.clients_lock:
-                self.clients[client_name] = Client(client_name)
+                if client_name not in self.clients:
+                    self.clients[client_name] = Client(client_name)
             with self.get_market():
                 self.market.add_client(client_name)
                 
@@ -531,7 +537,6 @@ class Homebroker:
                     self.clients[client_name].quotes.get().append(owned_quote)
                     self.quotes[owned_quote] = None
         self.update_quotes()
-        print(f"Novo cliente: {client_name}")
 
         # Função que vai retornando o stream de notificações
         def stream():
