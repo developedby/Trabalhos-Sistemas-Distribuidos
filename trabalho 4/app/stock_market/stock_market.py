@@ -101,10 +101,10 @@ class StockMarket:
 
         self.coordinator.participants['Market'] = self.market_participant.uri
 
-        self.coordinator.get_initial_state()
-        self.market_participant.get_initial_state()
+        self.coordinator.execute_initial_orders()
+        self.market_participant.execute_initial_orders()
         for participant in self.participants:
-            participant.get_initial_state()
+            participant.execute_initial_orders()
 
         # Registra no nameserver
         nameserver.register('stockmarket', self.uri)
@@ -145,14 +145,34 @@ class StockMarket:
         self.mark_expired_orders_as_inactive()
 
         #Pega todas as travas de todas as ordens
+        stock_locks_already_locked = {}
         for client_name in self.stock_locks.keys():
             for ticker in self.stock_locks[client_name].keys():
                 self.stock_locks[client_name][ticker].acquire()
+                # print(result, client_name, ticker)
+                # if not result:
+                #     if client_name not in stock_locks_already_locked:
+                #         stock_locks_already_locked[client_name] = set()
+                #     stock_locks_already_locked[client_name].add(ticker)
+
         
         active_orders = self.db.execute_with_fetch(
             f''' select o.*, c.name 
                     from {order_type.value} as o inner join Client as c on o.client_id = c.id
                         where o.active = 1 ''', True)
+
+        # print(stock_locks_already_locked)
+        # active_order_copy = []
+        # for data in active_orders:
+        #     if data[7] not in stock_locks_already_locked:
+        #         active_order_copy.append(data)
+        #     elif data[2] not in stock_locks_already_locked[data[7]]:
+        #         active_order_copy.append(data)
+
+        # print(active_order_copy)
+        # print(active_orders)
+
+        # active_orders = active_order_copy
 
         #Faz um dicionário de ordens ativas por cliente, subtrai os conjuntos para descobrir quem não tem ordem ativa
         orders_by_client = {}
@@ -180,6 +200,9 @@ class StockMarket:
                     self.stock_locks[client_name][ticker].release()
         # print("linha 176")
         # Tenta executar
+        # threading.Thread(target=self.try_trade_with_market,
+        #                  args=(order_type, active_orders),
+        #                  daemon=True).start()
         self.try_trade_with_market(order_type, active_orders)
     
     def try_trade_with_market(self,

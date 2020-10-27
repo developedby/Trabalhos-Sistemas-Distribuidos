@@ -101,6 +101,7 @@ class CoordinatorTransaction:
                  state: Optional[TransactionState] = TransactionState.ACTIVE,
                  final_buy_order_id: Optional[int] = None,
                  final_sell_order_id: Optional[int] = None,
+                 finished_participants: Optional[int] = 0,
                  **kwargs):
         self.id = id_
         self.initial_buy_order_id = initial_buy_order_id
@@ -111,7 +112,7 @@ class CoordinatorTransaction:
         self.state = state
         self.final_buy_order_id = final_buy_order_id
         self.final_sell_order_id = final_sell_order_id
-        self.finished_participants = 0
+        self.finished_participants = finished_participants
 
     @staticmethod
     def to_dict(transaction: 'CoordinatorTransaction') -> Dict[str, Any]:
@@ -126,7 +127,8 @@ class CoordinatorTransaction:
             'participants': transaction.participants,
             'state': transaction.state.value,
             'final_buy_order_id': transaction.final_buy_order_id,
-            'final_sell_order_id': transaction.final_sell_order_id
+            'final_sell_order_id': transaction.final_sell_order_id,
+            'finished_participants': transaction.finished_participants
         }
 
     @staticmethod
@@ -142,6 +144,7 @@ class CoordinatorTransaction:
             state=TransactionState(dict_['state']),
             final_buy_order_id=dict_['final_buy_order_id'],
             final_sell_order_id=dict_['final_sell_order_id'],
+            finished_participants=dict_['finished_participants']
         )
 
 Pyro5.api.SerializerBase.register_class_to_dict(ParticipantTransaction, ParticipantTransaction.to_dict)
@@ -165,9 +168,12 @@ class Coordinator:
         
         self.db = db
 
+        self.get_initial_state()
+
+        self.is_to_commit = True
+
     def save_temporary_state(self):
         """Salva o estado temporário do coordenador, no caso todas as transações que não foram completadas"""
-
         file_path = self.path / 'temporary_log.json'
         transactions = [CoordinatorTransaction.to_dict(t) for t in self.transaction_operations.values()]
         
@@ -279,6 +285,7 @@ class Coordinator:
             return  (self.transaction_operations[transaction_id].final_buy_order_id != None 
                     and self.transaction_operations[transaction_id].final_sell_order_id != None) 
         return True
+    
     @Pyro5.api.expose
     def get_transaction_state(self, transaction_id: int):
         """
@@ -330,7 +337,8 @@ class Coordinator:
         if positives_votes == len(participants):
             self.transaction_operations[transaction_id].state = TransactionState.COMPLETED
             # self.save_state(transaction_id)
-            self.save_temporary_state()
+            if self.is_to_commit:
+                self.save_temporary_state()
             for participant_name in participants:
                 with Pyro5.api.Proxy(self.participants[participant_name]) as participant_proxy:
                     # def f(transaction_id):
@@ -351,7 +359,6 @@ class Coordinator:
                 with Pyro5.api.Proxy(self.participants[participant_name]) as participant_proxy:
                     participant_proxy.cancel_transaction(transaction_id)
 
-
     @Pyro5.api.expose
     def signal_transaction_completed(self, transaction_id: int, order_id: int, order_type: str):
         """
@@ -369,6 +376,9 @@ class Coordinator:
                 transaction.final_buy_order_id = order_id
             else:
                 transaction.final_sell_order_id = order_id
+            if not self.is_to_commit:
+                return
+            self.save_temporary_state()
             if (transaction.finished_participants == len(transaction.participants)):
                 self.create_transaction_log(transaction.final_sell_order_id,
                                             transaction.final_buy_order_id,
@@ -419,15 +429,16 @@ class Coordinator:
                 self.transaction_operations = {
                     t['id']: CoordinatorTransaction.from_dict('', t)
                     for t in data['transaction_operations']}
-                
-                for tid, transaction in self.transaction_operations.items():
-                    if transaction.state not in (TransactionState.COMPLETED, TransactionState.ABORTED):
-                        self.open_transaction(
-                            transaction.initial_buy_order_id,
-                            transaction.initial_sell_order_id,
-                            transaction.amount,
-                            transaction.price,
-                            tid)
+    
+    def execute_initial_orders(self):
+        for tid, transaction in self.transaction_operations.items():
+            if transaction.state not in (TransactionState.COMPLETED, TransactionState.ABORTED):
+                self.open_transaction(
+                    transaction.initial_buy_order_id,
+                    transaction.initial_sell_order_id,
+                    transaction.amount,
+                    transaction.price,
+                    tid)
 
 
 class Participant:
@@ -456,6 +467,10 @@ class Participant:
 
         self.path = Path(f'./app/stock_market/participants/{self.name}')
 
+        self.is_to_commit = True
+
+        self.get_initial_state()
+
     def save_state(self, transaction_id):
         """Salva o estado atual do participante"""
 
@@ -482,7 +497,7 @@ class Participant:
         """Salva o estado temporário do participante, no caso todas as transações que não foram completadas e a carteira momentânea"""
 
         file_path = self.path / 'temporary_log.json'
-        transactions = [ParticipantTransaction.to_dict(t) for t in self.transactions.values() if t.state != TransactionState.COMPLETED]
+        transactions = [ParticipantTransaction.to_dict(t) for t in self.transactions.values()]
         
         with open(file_path, 'w') as fp:
             fp.write(json.dumps({
@@ -547,7 +562,8 @@ class Participant:
         while self.transactions[transaction_id].state == TransactionState.ACTIVE:
             time.sleep(0.01)
 
-        if self.transactions[transaction_id].state == TransactionState.PENDING:
+        if (self.transactions[transaction_id].state == TransactionState.PENDING or 
+            self.transactions[transaction_id].state == TransactionState.COMPLETED):
             return True
         else:
             return False
@@ -559,8 +575,17 @@ class Participant:
 
         :param transacion_id: Id da transação a ser executada
         """
+        if not self.is_to_commit:
+            return
 
         transaction = self.transactions[transaction_id]
+        if (transaction.state == TransactionState.COMPLETED):
+            with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
+                print("Participante dizendo que já fez a transacao", ParticipantTransaction.to_dict(transaction))
+                coord_proxy.signal_transaction_completed(
+                transaction_id, transaction.order_id, transaction.order.type)
+            return
+
         # Se esgota a ordem, marca como inativa
         if not transaction.order.active:
             self.db.execute(
@@ -590,6 +615,7 @@ class Participant:
         else:
             print("Participant.commit_transaction: owned_stock_amount not setted")
         
+        transaction.order_id = new_id
         transaction.state = TransactionState.COMPLETED
         self.save_state(transaction_id)
 
@@ -652,31 +678,32 @@ class Participant:
                     t['id']: ParticipantTransaction.from_dict('', t)
                     for t in data['transactions']}
                 
-                with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-                    # Pra cada transação no log
-                    for tid, transaction in self.transactions.items():
-                        # Se é uma transação que tinha que executar
-                        # Ve se precisa começar de novo ou pode desistir
-                        if transaction.state == TransactionState.ACTIVE:
-                            coord_state = coord_proxy.get_transaction_state(tid)
-                            if coord_state == TransactionState.ACTIVE:
-                                self.prepare_transaction(transaction)
-                            elif coord_state == TransactionState.ABORTED:
-                                transaction.state = TransactionState.ABORTED
-                            else:
-                                print("Participant.get_initial_state: Ue, coord_state tem valor que não bate")
-                        # Se é uma transação que terminou e tava esperando
-                        # Ve se pode commitar ou se joga fora
-                        elif transaction.state == TransactionState.PENDING:
-                            coord_state = coord_proxy.get_transaction_state(tid)
-                            if coord_state == TransactionState.ACTIVE:
-                                pass
-                            elif coord_state == TransactionState.COMPLETED:
-                                self.commit_transaction(tid)
-                            elif coord_state == TransactionState.ABORTED:
-                                transaction.state = TransactionState.ABORTED
-                            else:
-                                print("Participant.get_initial_state: Ue, coord_state tem valor que não bate")
+    def execute_initial_orders(self):
+        with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
+            # Pra cada transação no log
+            for tid, transaction in self.transactions.items():
+                # Se é uma transação que tinha que executar
+                # Ve se precisa começar de novo ou pode desistir
+                if transaction.state == TransactionState.ACTIVE:
+                    coord_state = TransactionState(coord_proxy.get_transaction_state(tid))
+                    if coord_state == TransactionState.ACTIVE:
+                        self.prepare_transaction(transaction)
+                    elif coord_state == TransactionState.ABORTED:
+                        transaction.state = TransactionState.ABORTED
+                    else:
+                        print("Participant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
+                # Se é uma transação que terminou e tava esperando
+                # Ve se pode commitar ou se joga fora
+                elif transaction.state == TransactionState.PENDING:
+                    coord_state = TransactionState(coord_proxy.get_transaction_state(tid))
+                    if coord_state == TransactionState.ACTIVE:
+                        pass
+                    elif coord_state == TransactionState.COMPLETED:
+                        self.commit_transaction(tid)
+                    elif coord_state == TransactionState.ABORTED:
+                        transaction.state = TransactionState.ABORTED
+                    else:
+                        print("Participant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
 
 
 class MarketParticipant:
@@ -689,6 +716,8 @@ class MarketParticipant:
         self.uri = daemon.register(self)
         self.transactions: Dict[int, ParticipantTransaction] = {}
         self.path = Path(f'./app/stock_market/participants/Market')
+
+        self.get_initial_state()
 
     def save_state(self, transaction_id):
         """Salva o estado atual do participante"""
@@ -716,7 +745,7 @@ class MarketParticipant:
         """Salva o estado temporário do coordenador, no caso todas as transações que não foram completadas"""
 
         file_path = self.path / 'temporary_log.json'
-        transactions = [ParticipantTransaction.to_dict(t) for t in self.transactions.values() if t.state != TransactionState.COMPLETED]
+        transactions = [ParticipantTransaction.to_dict(t) for t in self.transactions.values()]
 
         with open(file_path, 'w') as fp:
             fp.write(json.dumps({
@@ -730,7 +759,9 @@ class MarketParticipant:
 
         :param transacition: Transação a ser executada
         """
-
+        # Ve se já não esta executando essa transação
+        if transaction.id in self.transactions:
+            return
         self.transactions[transaction.id] = transaction
         self.transactions[transaction.id].state = TransactionState.PENDING
         self.save_temporary_state()
@@ -744,7 +775,7 @@ class MarketParticipant:
         """
 
         if transaction_id in self.transactions:
-            return self.transactions[transaction_id].state == TransactionState.PENDING
+            return self.transactions[transaction_id].state in (TransactionState.PENDING, TransactionState.COMPLETED)
         return False
 
     @Pyro5.api.expose
@@ -756,6 +787,13 @@ class MarketParticipant:
         """
 
         transaction = self.transactions[transaction_id]
+
+        if (transaction.state == TransactionState.COMPLETED):
+            with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
+                print("Mercado dizendo que já fez a transacao", ParticipantTransaction.to_dict(transaction))
+                coord_proxy.signal_transaction_completed(
+                transaction_id, transaction.order_id, transaction.order.type)
+            return
         # Cria a ordem no nome do mercado no db
 
         self.db.execute(
@@ -800,17 +838,17 @@ class MarketParticipant:
                 self.transactions = {
                     t['id']: ParticipantTransaction.from_dict('', t)
                     for t in data['transactions']}
-                
-                with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
-                    # Pra cada transação no log
-                    for tid, transaction in self.transactions.items():
-                        if transaction.state == TransactionState.PENDING:
-                            coord_state = coord_proxy.get_transaction_state(tid)
-                            if coord_state == TransactionState.ACTIVE:
-                                pass
-                            elif coord_state == TransactionState.COMPLETED:
-                                self.commit_transaction(tid)
-                            elif coord_state == TransactionState.ABORTED:
-                                transaction.state = TransactionState.ABORTED
-                            else:
-                                print("Participant.get_initial_state: Ue, coord_state tem valor que não bate")
+    def execute_initial_orders(self):
+        with Pyro5.api.Proxy(self.coordinator_uri) as coord_proxy:
+            # Pra cada transação no log
+            for tid, transaction in self.transactions.items():
+                if transaction.state == TransactionState.PENDING:
+                    coord_state = TransactionState(coord_proxy.get_transaction_state(tid))
+                    if coord_state == TransactionState.ACTIVE:
+                        pass
+                    elif coord_state == TransactionState.COMPLETED:
+                        self.commit_transaction(tid)
+                    elif coord_state == TransactionState.ABORTED:
+                        transaction.state = TransactionState.ABORTED
+                    else:
+                        print("MarketParticipant.get_initial_state: Ue, coord_state tem valor que não bate", transaction.state, coord_state)
