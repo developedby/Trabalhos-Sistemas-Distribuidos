@@ -37,7 +37,7 @@ class HomebrokerErrorCode(Enum):
         return str(self.value)
 
 class TransactionState(Enum):
-    """Possíveis estados de uma transação"""
+    """Possíveis estados de uma transação."""
 
     ACTIVE = auto()
     PENDING = auto()
@@ -46,7 +46,7 @@ class TransactionState(Enum):
     COMPLETED = auto()
 
 class VotingState(Enum):
-    """Possíveis estados de uma transação"""
+    """Valores possíveis dos votos para efetivar uma transação."""
     YES = auto()
     NO = auto()
     NOT_READY = auto()
